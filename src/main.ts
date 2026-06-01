@@ -5,6 +5,7 @@ import {
   exportProjectMusicC,
   exportProjectSfxC,
   exportProjectSpritesC,
+  getSpriteExportErrors,
   type GeneratedCFile,
 } from "./export/exportProjectC.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
@@ -262,6 +263,13 @@ const actions: RenderActions = {
     }
 
     if (activeMode === "sprites") {
+      const spriteErrors = getSpriteExportErrors(getProject());
+
+      if (spriteErrors.length > 0) {
+        showStatus(`Fix sprite export errors first: ${spriteErrors.join(", ")}`, "error");
+        return;
+      }
+
       const file = exportProjectSpritesC(getProject());
 
       if (file === null) {
@@ -290,6 +298,13 @@ const actions: RenderActions = {
 
     if (sfxError !== null) {
       showStatus(sfxError, "error");
+      return;
+    }
+
+    const spriteErrors = getSpriteExportErrors(getProject());
+
+    if (spriteErrors.length > 0) {
+      showStatus(`Fix sprite export errors first: ${spriteErrors.join(", ")}`, "error");
       return;
     }
 

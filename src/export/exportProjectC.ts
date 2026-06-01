@@ -9,15 +9,44 @@ export interface GeneratedCFile {
   source: string;
 }
 
-interface NamedPrimitive {
-  primitive: Primitive;
-  paletteIndex: number;
+interface CompactPrimitive {
+  kind: PrimitiveKind;
+  x: number;
+  y: number;
+  size: number;
+  rotation: number;
+  color: number;
+}
+
+export const spriteSizeTable = [
+  0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 128, 160, 192, 224, 255,
+] as const;
+
+const compactSizeTableLimit = 16;
+const fullCircleRadians = Math.PI * 2;
+
+export function getSpriteExportErrors(project: Project): string[] {
+  const errors: string[] = [];
+  const sprites = project.assets.filter((asset): asset is SpriteProjectAsset => asset.kind === "sprite");
+  const palette = project.spritePalette.slice(0, 256);
+
+  for (const sprite of sprites) {
+    for (const primitive of flattenNodes(sprite.sprite.nodes)) {
+      errors.push(...getPrimitiveExportErrors(sprite, primitive, palette));
+    }
+  }
+
+  return errors;
 }
 
 export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
   const sprites = project.assets.filter((asset): asset is SpriteProjectAsset => asset.kind === "sprite");
 
   if (sprites.length === 0) {
+    return null;
+  }
+
+  if (getSpriteExportErrors(project).length > 0) {
     return null;
   }
 
@@ -35,6 +64,12 @@ export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
       "};",
       "",
       "const uint16_t CAT_MEOW_GLOBAL_PALETTE_COUNT = sizeof(CAT_MEOW_GLOBAL_PALETTE) / sizeof(CAT_MEOW_GLOBAL_PALETTE[0]);",
+      "",
+      "static const uint16_t SPRITE_SIZE_TABLE[] = {",
+      ...spriteSizeTable.map((size) => `    ${size},`),
+      "};",
+      "",
+      "const uint16_t SPRITE_SIZE_TABLE_COUNT = sizeof(SPRITE_SIZE_TABLE) / sizeof(SPRITE_SIZE_TABLE[0]);",
       "",
       "typedef enum {",
       ...sprites.map((sprite, index) => `    ${toSpriteIdConstant(sprite.id)} = ${index + 1},`),
@@ -98,10 +133,9 @@ function formatSpriteBlock(sprite: SpriteProjectAsset, palette: Project["spriteP
   definitionLine: string;
 } {
   const symbol = toCIdentifier(sprite.id, "SPRITE", "PRIMITIVES");
-  const primitives = flattenNodes(sprite.sprite.nodes).map((primitive) => ({
-    primitive,
-    paletteIndex: Math.max(0, palette.findIndex((color) => color.rgba === primitiveToRgba(primitive))),
-  }));
+  const primitives = flattenNodes(sprite.sprite.nodes)
+    .map((primitive) => toCompactPrimitive(primitive, palette))
+    .filter((primitive): primitive is CompactPrimitive => primitive !== null);
   const primitiveLines = [
     `static const SpritePrimitive ${symbol}[] = {`,
     ...primitives.map(formatPrimitive),
@@ -122,18 +156,110 @@ function formatSpriteBlock(sprite: SpriteProjectAsset, palette: Project["spriteP
   };
 }
 
-function formatPrimitive(entry: NamedPrimitive): string {
-  const primitive = entry.primitive;
+function formatPrimitive(primitive: CompactPrimitive): string {
+  return `    { ${getPrimitiveConstant(primitive.kind)}, ${primitive.x}, ${primitive.y}, 0x${primitive.size
+    .toString(16)
+    .padStart(2, "0")}, ${primitive.rotation}, ${primitive.color} },`;
+}
 
-  return `    { ${getPrimitiveConstant(primitive.kind)}, ${clampInteger(primitive.x, -32768, 32767)}, ${clampInteger(
-    primitive.y,
-    -32768,
-    32767,
-  )}, ${clampInteger(primitive.w, 0, 65535)}, ${clampInteger(primitive.h, 0, 65535)}, ${clampInteger(
-    primitive.rotation,
-    -32768,
-    32767,
-  )}, ${entry.paletteIndex}, ${alphaToByte(primitive.alpha)} },`;
+function toCompactPrimitive(primitive: Primitive, palette: Project["spritePalette"]): CompactPrimitive | null {
+  const x = toUint8(primitive.x);
+  const y = toUint8(primitive.y);
+  const color = palette.findIndex((paletteColor) => paletteColor.rgba === primitiveToRgba(primitive));
+
+  if (x === null || y === null || color < 0 || color > 255) {
+    return null;
+  }
+
+  const size = getPackedPrimitiveSize(primitive);
+
+  if (size === null) {
+    return null;
+  }
+
+  return {
+    kind: primitive.kind,
+    x,
+    y,
+    size,
+    rotation: rotationToByte(primitive.rotation),
+    color,
+  };
+}
+
+function getPrimitiveExportErrors(sprite: SpriteProjectAsset, primitive: Primitive, palette: Project["spritePalette"]): string[] {
+  const errors: string[] = [];
+  const label = `${sprite.name} ${primitive.kind}`;
+
+  if (toUint8(primitive.x) === null || toUint8(primitive.y) === null) {
+    errors.push(`${label} position must fit uint8 x/y coordinates.`);
+  }
+
+  if (palette.findIndex((color) => color.rgba === primitiveToRgba(primitive)) === -1) {
+    errors.push(`${label} color is not in the global sprite palette.`);
+  }
+
+  if (getPackedPrimitiveSize(primitive) === null) {
+    errors.push(`${label} size is not in the compact sprite size table.`);
+  }
+
+  if (!Number.isFinite(primitive.rotation)) {
+    errors.push(`${label} rotation must be finite.`);
+  }
+
+  return errors;
+}
+
+function getPackedPrimitiveSize(primitive: Primitive): number | null {
+  if (primitive.kind === "circle") {
+    const radiusIndex = getCompactSizeIndex(primitive.w);
+
+    return radiusIndex === null ? null : radiusIndex << 4;
+  }
+
+  const widthIndex = getCompactSizeIndex(primitive.w);
+  const heightIndex = getCompactSizeIndex(primitive.h);
+
+  if (widthIndex === null || heightIndex === null) {
+    return null;
+  }
+
+  return (widthIndex << 4) | heightIndex;
+}
+
+function getCompactSizeIndex(value: number): number | null {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const roundedValue = Math.round(value);
+  const index = spriteSizeTable.slice(0, compactSizeTableLimit).findIndex((size) => size === roundedValue);
+
+  return index === -1 ? null : index;
+}
+
+function toUint8(value: number): number | null {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const roundedValue = Math.round(value);
+
+  if (roundedValue < 0 || roundedValue > 255) {
+    return null;
+  }
+
+  return roundedValue;
+}
+
+function rotationToByte(rotation: number): number {
+  if (!Number.isFinite(rotation)) {
+    return 0;
+  }
+
+  const normalizedRotation = ((rotation % fullCircleRadians) + fullCircleRadians) % fullCircleRadians;
+
+  return Math.round((normalizedRotation / fullCircleRadians) * 256) % 256;
 }
 
 function getPrimitiveConstant(kind: PrimitiveKind): string {
@@ -165,10 +291,6 @@ function toFileStem(value: string): string {
   const stem = value.toLowerCase().replace(/[^a-z0-9_-]+/g, "_").replace(/^_+|_+$/g, "");
 
   return stem === "" ? "cat_meow" : stem;
-}
-
-function alphaToByte(value: number): number {
-  return clampInteger(value, 0, 255);
 }
 
 function primitiveToRgba(primitive: Primitive): string {
