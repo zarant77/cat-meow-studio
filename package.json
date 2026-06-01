@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "start": "vite --host 0.0.0.0",
     "build": "tsc && vite build",
+    "start": "serve -s dist -l $PORT",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "lucide": "^1.17.0"
+    "lucide": "^1.17.0",
+    "serve": "^14.2.6"
   },
   "devDependencies": {
     "@types/node": "latest",
