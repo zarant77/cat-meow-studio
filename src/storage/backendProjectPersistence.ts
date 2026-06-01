@@ -90,7 +90,9 @@ export async function listProjects(): Promise<ProjectSummary[]> {
 }
 
 export async function loadBackendProjectState(storageProjectId: string | null = null): Promise<BackendProjectState> {
-  const response = await fetchApi(storageProjectId === null ? "/api/project" : `/api/project?project=${encodeURIComponent(storageProjectId)}`);
+  const response = await fetchApi(
+    storageProjectId === null ? "/api/project" : `/api/project?project=${encodeURIComponent(storageProjectId)}`,
+  );
   const body = await readJsonResponse(response);
 
   if (!response.ok) {
@@ -117,13 +119,16 @@ export async function loadBackendProjectState(storageProjectId: string | null = 
 }
 
 export async function saveBackendProjectState(state: PersistedProjectState, storageProjectId: string | null = null): Promise<void> {
-  const response = await fetchApi(storageProjectId === null ? "/api/project" : `/api/project?project=${encodeURIComponent(storageProjectId)}`, {
-    method: "PUT",
-    headers: {
-      "content-type": "application/json",
+  const response = await fetchApi(
+    storageProjectId === null ? "/api/project" : `/api/project?project=${encodeURIComponent(storageProjectId)}`,
+    {
+      method: "PUT",
+      headers: {
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(state),
     },
-    body: JSON.stringify(state),
-  });
+  );
 
   if (!response.ok) {
     const body = await readJsonResponse(response).catch((): unknown => null);
@@ -132,10 +137,7 @@ export async function saveBackendProjectState(state: PersistedProjectState, stor
 }
 
 export async function loadAdminData(): Promise<{ users: AdminUserSummary[]; projects: AdminProjectSummary[] }> {
-  const [usersResponse, projectsResponse] = await Promise.all([
-    fetchApi("/api/admin/users"),
-    fetchApi("/api/admin/projects"),
-  ]);
+  const [usersResponse, projectsResponse] = await Promise.all([fetchApi("/api/admin/users"), fetchApi("/api/admin/projects")]);
   const usersBody = await readJsonResponse(usersResponse);
   const projectsBody = await readJsonResponse(projectsResponse);
 
@@ -148,10 +150,14 @@ export async function loadAdminData(): Promise<{ users: AdminUserSummary[]; proj
   }
 
   return {
-    users: isRecord(usersBody) && Array.isArray(usersBody.users) ? usersBody.users.flatMap((user): AdminUserSummary[] => (isAdminUser(user) ? [user] : [])) : [],
-    projects: isRecord(projectsBody) && Array.isArray(projectsBody.projects)
-      ? projectsBody.projects.flatMap((project): AdminProjectSummary[] => (isAdminProject(project) ? [project] : []))
-      : [],
+    users:
+      isRecord(usersBody) && Array.isArray(usersBody.users)
+        ? usersBody.users.flatMap((user): AdminUserSummary[] => (isAdminUser(user) ? [user] : []))
+        : [],
+    projects:
+      isRecord(projectsBody) && Array.isArray(projectsBody.projects)
+        ? projectsBody.projects.flatMap((project): AdminProjectSummary[] => (isAdminProject(project) ? [project] : []))
+        : [],
   };
 }
 
@@ -208,9 +214,12 @@ export async function addAdminProjectUser(storageProjectId: string, userId: stri
 }
 
 export async function removeAdminProjectUser(storageProjectId: string, userId: string): Promise<void> {
-  const response = await fetchApi(`/api/admin/project-users?project=${encodeURIComponent(storageProjectId)}&user=${encodeURIComponent(userId)}`, {
-    method: "DELETE",
-  });
+  const response = await fetchApi(
+    `/api/admin/project-users?project=${encodeURIComponent(storageProjectId)}&user=${encodeURIComponent(userId)}`,
+    {
+      method: "DELETE",
+    },
+  );
   const body = await readJsonResponse(response);
 
   if (!response.ok) {
@@ -218,7 +227,10 @@ export async function removeAdminProjectUser(storageProjectId: string, userId: s
   }
 }
 
-function shouldMigrateLocalProject(backendState: PersistedProjectState, localState: PersistedProjectState | null): localState is PersistedProjectState {
+function shouldMigrateLocalProject(
+  backendState: PersistedProjectState,
+  localState: PersistedProjectState | null,
+): localState is PersistedProjectState {
   if (localState === null) {
     return false;
   }
@@ -244,18 +256,19 @@ function readBackendProjectState(value: unknown): BackendProjectState | null {
 }
 
 function isCurrentUser(value: unknown): value is CurrentUser {
-  return isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.email === "string" &&
-    (value.role === "admin" || value.role === "user");
+  return (
+    isRecord(value) && typeof value.id === "string" && typeof value.email === "string" && (value.role === "admin" || value.role === "user")
+  );
 }
 
 function isProjectSummary(value: unknown): value is ProjectSummary {
-  return isRecord(value) &&
+  return (
+    isRecord(value) &&
     typeof value.storageProjectId === "string" &&
     typeof value.projectId === "string" &&
     typeof value.name === "string" &&
-    typeof value.ownerEmail === "string";
+    typeof value.ownerEmail === "string"
+  );
 }
 
 function isAdminUser(value: unknown): value is AdminUserSummary {
@@ -263,7 +276,12 @@ function isAdminUser(value: unknown): value is AdminUserSummary {
 }
 
 function isAdminProject(value: unknown): value is AdminProjectSummary {
-  return isProjectSummary(value) && Array.isArray(value.userIds) && value.userIds.every((userId) => typeof userId === "string");
+  return (
+    isRecord(value) &&
+    isProjectSummary(value) &&
+    Array.isArray(value["userIds"]) &&
+    value["userIds"].every((userId: unknown) => typeof userId === "string")
+  );
 }
 
 function readApiError(value: unknown, fallback: string): string {
