@@ -308,7 +308,7 @@ const actions: RenderActions = {
       return;
     }
 
-    downloadGeneratedCFiles(exportProjectC(getProject()), "No project assets to export.", "Exported all C sources.");
+    downloadGeneratedCFiles(exportProjectC(getProject()), "No project assets to export.", "Exported little_one_assets.c.");
   },
   createFromPreset(presetId) {
     createProjectFromPreset(presetId);
@@ -465,9 +465,6 @@ const appActions: AppActions = {
 
       render();
     },
-  },
-  setMode(mode) {
-    switchMode(mode);
   },
 };
 
@@ -895,13 +892,13 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
 
   if (isCommandShortcut && key === "s") {
     event.preventDefault();
-    actions.exportSoundJson();
+    actions.exportAllC();
     return;
   }
 
   if (isCommandShortcut && key === "e") {
     event.preventDefault();
-    actions.exportSoundC();
+    actions.exportAllC();
     return;
   }
 

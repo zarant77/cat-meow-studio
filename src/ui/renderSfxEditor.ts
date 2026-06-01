@@ -13,15 +13,37 @@ import { renderWaveform } from "./renderWaveform.js";
 
 export function renderSfxSurface(state: EditorState, actions: RenderActions): ModeSurface {
   return {
-    assetPanel: renderSfxAssetPanel(state, actions),
+    assetPanel: renderSfxToolbar(actions),
     editorArea: renderSfxEditorArea(state, actions),
     inspectorPanel: renderSfxInspectorPanel(state, actions),
     previewStatusArea: renderSfxPreview(getProjectFromState(state)),
   };
 }
 
-function renderSfxAssetPanel(state: EditorState, actions: RenderActions): HTMLElement {
-  const panel = renderAssetSidebarPanel("sfx-asset-panel");
+function renderSfxToolbar(actions: RenderActions): HTMLElement {
+  const panel = renderAssetSidebarPanel("sfx-toolbar-panel toolbar");
+  const buttons: Array<[string, string, () => void]> = [
+    ["↶", "Undo", actions.undo],
+    ["↷", "Redo", actions.redo],
+    ["▶", "Play preview", actions.playSound],
+    ["■", "Stop preview", actions.stopSound],
+    ["+", "Add command", actions.addCommand],
+  ];
+
+  for (const [label, title, onClick] of buttons) {
+    const button = createTextElement("button", label, "tool-button");
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.addEventListener("click", onClick);
+    panel.append(button);
+  }
+
+  return panel;
+}
+
+function renderSfxProjectProperties(state: EditorState, actions: RenderActions): HTMLElement {
+  const panel = createElement("section", "sfx-asset-panel inspector-embedded-section");
   panel.append(createTextElement("h2", "Sound"));
 
   const idInput = createElement("input");
@@ -48,7 +70,14 @@ function renderSfxEditorArea(state: EditorState, actions: RenderActions): HTMLEl
 }
 
 function renderSfxInspectorPanel(state: EditorState, actions: RenderActions): HTMLElement {
-  return renderInspector(state, actions);
+  const panel = renderInspectorPanelWithProperties(state, actions);
+  return panel;
+}
+
+function renderInspectorPanelWithProperties(state: EditorState, actions: RenderActions): HTMLElement {
+  const panel = renderInspector(state, actions);
+  panel.prepend(renderSfxProjectProperties(state, actions));
+  return panel;
 }
 
 function renderSfxPreview(project: SoundProject): HTMLElement {
@@ -58,7 +87,7 @@ function renderSfxPreview(project: SoundProject): HTMLElement {
   waveform.append(renderWaveform(project));
 
   const previewMeta = createElement("div", "preview-meta");
-  previewMeta.append(createTextElement("span", "Preview"), createTextElement("strong", `${project.id}.sound`));
+  previewMeta.append(createTextElement("span", "SFX"), createTextElement("strong", `${project.id} - ${project.commands.length} commands`));
   preview.append(waveform, previewMeta);
 
   return preview;

@@ -339,6 +339,14 @@ export function isSpritePaletteColorUsed(index: number): boolean {
     return false;
   }
 
+  const hasDuplicateColor = projectState.spritePalette.some((candidate, candidateIndex) => {
+    return candidateIndex !== index && candidate.rgba === color.rgba;
+  });
+
+  if (hasDuplicateColor) {
+    return false;
+  }
+
   return projectState.assets.some((asset) => {
     if (asset.kind !== "sprite") {
       return false;

@@ -1,8 +1,14 @@
 import type { MusicInstrument, MusicNote, MusicProject, MusicWave } from "../model/musicProject.js";
 import { isValidSoundId, toMusicSymbolName } from "../utils/symbolName.js";
 
-interface MusicCOptions {
+export interface MusicCOptions {
   numericId?: number;
+}
+
+export interface MusicDefinitionCBlock {
+  idConstant: string;
+  definitionSymbol: string;
+  sourceLines: string[];
 }
 
 export function exportMusicC(project: MusicProject, options: MusicCOptions = {}): string | null {
@@ -10,39 +16,64 @@ export function exportMusicC(project: MusicProject, options: MusicCOptions = {})
     return null;
   }
 
-  const symbolName = toMusicSymbolName(project.id);
-  const musicId = getMusicIdConstant(project.id);
+  const block = createMusicDefinitionCBlock(project, options);
+
+  if (block === null) {
+    return null;
+  }
 
   return [
     '#include "../audio/music_definition.h"',
     "",
     "typedef enum {",
-    `    ${musicId} = ${clampInteger(options.numericId ?? 1, 1, 65535)}`,
+    `    ${block.idConstant} = ${clampInteger(options.numericId ?? 1, 1, 65535)}`,
     "} MusicId;",
     "",
-    "static const MusicInstrument INSTRUMENTS[] = {",
-    ...project.instruments.map(formatInstrument),
-    "};",
-    "",
-    "static const MusicNote NOTES[] = {",
-    ...project.notes.map(formatNote),
-    "};",
-    "",
-    `const MusicDefinition ${symbolName} = {`,
-    `    .id = ${musicId},`,
-    "",
-    `    .bpm = ${clampInteger(project.bpm, 20, 300)},`,
-    `    .ticks_per_beat = ${clampInteger(project.ticksPerBeat, 1, 32)},`,
-    `    .length_ticks = ${clampInteger(project.lengthTicks, 1, 4096)},`,
-    "",
-    "    .instruments = INSTRUMENTS,",
-    "    .instrument_count = sizeof(INSTRUMENTS) / sizeof(INSTRUMENTS[0]),",
-    "",
-    "    .notes = NOTES,",
-    "    .note_count = sizeof(NOTES) / sizeof(NOTES[0]),",
-    "};",
-    "",
+    ...block.sourceLines,
   ].join("\n");
+}
+
+export function createMusicDefinitionCBlock(
+  project: MusicProject,
+  options: MusicCOptions & { instrumentSymbol?: string; noteSymbol?: string } = {},
+): MusicDefinitionCBlock | null {
+  if (!isValidSoundId(project.id)) {
+    return null;
+  }
+
+  const instrumentSymbol = options.instrumentSymbol ?? "INSTRUMENTS";
+  const noteSymbol = options.noteSymbol ?? "NOTES";
+  const definitionSymbol = toMusicSymbolName(project.id);
+  const idConstant = getMusicIdConstant(project.id);
+
+  return {
+    idConstant,
+    definitionSymbol,
+    sourceLines: [
+      `static const MusicInstrument ${instrumentSymbol}[] = {`,
+      ...project.instruments.map(formatInstrument),
+      "};",
+      "",
+      `static const MusicNote ${noteSymbol}[] = {`,
+      ...project.notes.map(formatNote),
+      "};",
+      "",
+      `const MusicDefinition ${definitionSymbol} = {`,
+      `    .id = ${idConstant},`,
+      "",
+      `    .bpm = ${clampInteger(project.bpm, 20, 300)},`,
+      `    .ticks_per_beat = ${clampInteger(project.ticksPerBeat, 1, 32)},`,
+      `    .length_ticks = ${clampInteger(project.lengthTicks, 1, 4096)},`,
+      "",
+      `    .instruments = ${instrumentSymbol},`,
+      `    .instrument_count = sizeof(${instrumentSymbol}) / sizeof(${instrumentSymbol}[0]),`,
+      "",
+      `    .notes = ${noteSymbol},`,
+      `    .note_count = sizeof(${noteSymbol}) / sizeof(${noteSymbol}[0]),`,
+      "};",
+      "",
+    ],
+  };
 }
 
 function formatInstrument(instrument: MusicInstrument): string {
@@ -82,7 +113,7 @@ function clampInteger(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, Math.round(value)));
 }
 
-function getMusicIdConstant(musicId: string): string {
+export function getMusicIdConstant(musicId: string): string {
   return `MUSIC_ID_${toEnumToken(musicId)}`;
 }
 

@@ -3,14 +3,18 @@ import { isMusicWave, musicWaves } from "../model/musicProject.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
 import { appendChildren, createElement, createField, createIconButton, createTextElement } from "./dom.js";
 import { renderWaveformSamples } from "./renderWaveform.js";
-import type { ModeSurface, MusicRenderActions } from "./appTypes.js";
+import type { ModeSurface, MusicRenderActions, RenderActions } from "./appTypes.js";
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
 
-export function renderMusicWorkspaceSurface(state: MusicEditorState, actions: MusicRenderActions): Omit<ModeSurface, "previewStatusArea"> {
+export function renderMusicWorkspaceSurface(
+  state: MusicEditorState,
+  actions: MusicRenderActions,
+  shellActions: RenderActions,
+): Omit<ModeSurface, "previewStatusArea"> {
   return {
-    assetPanel: renderMusicProjectPanel(state, actions),
+    assetPanel: renderMusicToolbar(actions, shellActions),
     editorArea: renderMusicTracker(state, actions),
-    inspectorPanel: renderMusicInspector(state, actions),
+    inspectorPanel: renderMusicInspectorWithProperties(state, actions),
   };
 }
 
@@ -21,14 +25,17 @@ export function renderMusicPreview(state: MusicEditorState): HTMLElement {
   waveform.append(renderWaveformSamples(generateMusicSamples(state.project)));
 
   const previewMeta = createElement("div", "preview-meta");
-  previewMeta.append(createTextElement("span", "Loop"), createTextElement("strong", `${state.project.id}.music`));
+  previewMeta.append(
+    createTextElement("span", "Music"),
+    createTextElement("strong", `${state.project.id} - ${state.project.bpm} bpm - ${state.project.lengthTicks} ticks`),
+  );
   preview.append(waveform, previewMeta);
 
   return preview;
 }
 
 function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
-  const panel = renderAssetSidebarPanel("music-panel");
+  const panel = createElement("section", "music-panel inspector-embedded-section");
   panel.append(createTextElement("h2", "Music"));
   panel.append(createTextField("ID", state.project.id, "musicId", (value) => actions.updateProject({ id: value })));
 
@@ -63,6 +70,29 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
   });
   instrumentList.append(instrumentRows);
   panel.append(instrumentList);
+
+  return panel;
+}
+
+function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
+  const panel = renderAssetSidebarPanel("music-toolbar-panel toolbar");
+  const buttons: Array<[string, string, () => void]> = [
+    ["↶", "Undo", shellActions.undo],
+    ["↷", "Redo", shellActions.redo],
+    ["▶", "Play preview", shellActions.playSound],
+    ["■", "Stop preview", shellActions.stopSound],
+    ["+", "Add note", actions.addNote],
+    ["◉", "Add instrument", actions.addInstrument],
+  ];
+
+  for (const [label, title, onClick] of buttons) {
+    const button = createTextElement("button", label, "tool-button");
+    button.type = "button";
+    button.title = title;
+    button.setAttribute("aria-label", title);
+    button.addEventListener("click", onClick);
+    panel.append(button);
+  }
 
   return panel;
 }
@@ -153,6 +183,13 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
     panel.append(createNumberField("Attack ms", selectedInstrument.attackMs, "instAttack", (value) => actions.updateInstrument({ attackMs: value })));
     panel.append(createNumberField("Decay ms", selectedInstrument.decayMs, "instDecay", (value) => actions.updateInstrument({ decayMs: value })));
   }
+
+  return panel;
+}
+
+function renderMusicInspectorWithProperties(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
+  const panel = renderMusicInspector(state, actions);
+  panel.prepend(renderMusicProjectPanel(state, actions));
 
   return panel;
 }

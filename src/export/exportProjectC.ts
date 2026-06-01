@@ -1,6 +1,6 @@
-import { exportMusicC } from "./exportMusicC.js";
-import { exportSoundC } from "./exportSoundC.js";
-import type { Project, SpriteProjectAsset } from "../model/assets.js";
+import { createMusicDefinitionCBlock, exportMusicC, type MusicDefinitionCBlock } from "./exportMusicC.js";
+import { createSoundDefinitionCBlock, exportSoundC, type SoundDefinitionCBlock } from "./exportSoundC.js";
+import type { MusicProjectAsset, Project, SfxProjectAsset, SpriteProjectAsset } from "../model/assets.js";
 import { flattenNodes } from "../sprites/document/CatPaintDocument.js";
 import type { Primitive, PrimitiveKind } from "../sprites/primitives/Primitive.js";
 
@@ -19,10 +19,11 @@ interface CompactPrimitive {
 }
 
 export const spriteSizeTable = [
-  0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32, 40, 48, 56, 64, 80, 96, 128, 160, 192, 224, 255,
+  0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32,
 ] as const;
 
-const compactSizeTableLimit = 16;
+export const spriteCanvasSizeTable = [32, 64, 96, 128, 192, 256, 512, 768, 1024] as const;
+
 const fullCircleRadians = Math.PI * 2;
 
 export function getSpriteExportErrors(project: Project): string[] {
@@ -31,6 +32,12 @@ export function getSpriteExportErrors(project: Project): string[] {
   const palette = project.spritePalette.slice(0, 256);
 
   for (const sprite of sprites) {
+    const canvasSize = getPackedCanvasSize(sprite);
+
+    if (canvasSize === null) {
+      errors.push(`${sprite.name} canvas size is not in the sprite canvas size table.`);
+    }
+
     for (const primitive of flattenNodes(sprite.sprite.nodes)) {
       errors.push(...getPrimitiveExportErrors(sprite, primitive, palette));
     }
@@ -51,7 +58,6 @@ export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
   }
 
   const palette = project.spritePalette.slice(0, 256);
-  const spriteBlocks = sprites.map((sprite) => formatSpriteBlock(sprite, palette));
 
   return {
     fileName: `${toFileStem(project.id)}_sprites.c`,
@@ -59,29 +65,7 @@ export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
       "#include <stdint.h>",
       '#include "../graphics/sprite_definition.h"',
       "",
-      "static const uint32_t CAT_MEOW_GLOBAL_PALETTE[] = {",
-      ...palette.map((color) => `    ${rgbaToCColor(color.rgba)},`),
-      "};",
-      "",
-      "const uint16_t CAT_MEOW_GLOBAL_PALETTE_COUNT = sizeof(CAT_MEOW_GLOBAL_PALETTE) / sizeof(CAT_MEOW_GLOBAL_PALETTE[0]);",
-      "",
-      "static const uint16_t SPRITE_SIZE_TABLE[] = {",
-      ...spriteSizeTable.map((size) => `    ${size},`),
-      "};",
-      "",
-      "const uint16_t SPRITE_SIZE_TABLE_COUNT = sizeof(SPRITE_SIZE_TABLE) / sizeof(SPRITE_SIZE_TABLE[0]);",
-      "",
-      "typedef enum {",
-      ...sprites.map((sprite, index) => `    ${toSpriteIdConstant(sprite.id)} = ${index + 1},`),
-      "} SpriteId;",
-      "",
-      ...spriteBlocks.flatMap((block) => block.primitiveLines),
-      "const SpriteDefinition CAT_MEOW_SPRITES[] = {",
-      ...spriteBlocks.map((block) => block.definitionLine),
-      "};",
-      "",
-      "const uint16_t CAT_MEOW_SPRITE_COUNT = sizeof(CAT_MEOW_SPRITES) / sizeof(CAT_MEOW_SPRITES[0]);",
-      "",
+      ...createSpriteSectionLines(sprites, palette),
     ].join("\n"),
   };
 }
@@ -119,12 +103,149 @@ export function exportProjectSfxC(project: Project): GeneratedCFile[] {
 }
 
 export function exportProjectC(project: Project): GeneratedCFile[] {
-  const spriteFile = exportProjectSpritesC(project);
+  return exportLittleOneAssetsC(project);
+}
+
+export function exportLittleOneAssetsC(project: Project): GeneratedCFile[] {
+  const sprites = project.assets.filter((asset): asset is SpriteProjectAsset => asset.kind === "sprite");
+  const musicAssets = project.assets.filter((asset): asset is MusicProjectAsset => asset.kind === "music");
+  const sfxAssets = project.assets.filter((asset): asset is SfxProjectAsset => asset.kind === "sfx");
+  const palette = project.spritePalette.slice(0, 256);
 
   return [
-    ...(spriteFile === null ? [] : [spriteFile]),
-    ...exportProjectMusicC(project),
-    ...exportProjectSfxC(project),
+    {
+      fileName: "little_one_assets.c",
+      source: [
+        "#include <stdint.h>",
+        '#include "../graphics/sprite_definition.h"',
+        '#include "../audio/sound_definition.h"',
+        '#include "../audio/music_definition.h"',
+        "",
+        "/* Sprites */",
+        ...createSpriteSectionLines(sprites, palette),
+        "/* Sound effects */",
+        ...createSoundSectionLines(sfxAssets),
+        "/* Music */",
+        ...createMusicSectionLines(musicAssets),
+      ].join("\n"),
+    },
+  ];
+}
+
+function createSpriteSectionLines(sprites: readonly SpriteProjectAsset[], palette: Project["spritePalette"]): string[] {
+  const spriteBlocks = sprites.map((sprite) => formatSpriteBlock(sprite, palette));
+
+  return [
+    "static const uint32_t CAT_MEOW_GLOBAL_PALETTE[] = {",
+    ...palette.map((color) => `    ${rgbaToCColor(color.rgba)},`),
+    "};",
+    "",
+    "const uint16_t CAT_MEOW_GLOBAL_PALETTE_COUNT = sizeof(CAT_MEOW_GLOBAL_PALETTE) / sizeof(CAT_MEOW_GLOBAL_PALETTE[0]);",
+    "",
+    "static const uint16_t SPRITE_CANVAS_SIZE_TABLE[] = {",
+    ...spriteCanvasSizeTable.map((size) => `    ${size},`),
+    "};",
+    "",
+    "const uint16_t SPRITE_CANVAS_SIZE_TABLE_COUNT = sizeof(SPRITE_CANVAS_SIZE_TABLE) / sizeof(SPRITE_CANVAS_SIZE_TABLE[0]);",
+    "",
+    "static const uint16_t SPRITE_PRIMITIVE_SIZE_TABLE[] = {",
+    ...spriteSizeTable.map((size) => `    ${size},`),
+    "};",
+    "",
+    "const uint16_t SPRITE_PRIMITIVE_SIZE_TABLE_COUNT = sizeof(SPRITE_PRIMITIVE_SIZE_TABLE) / sizeof(SPRITE_PRIMITIVE_SIZE_TABLE[0]);",
+    "",
+    "typedef enum {",
+    "    SPRITE_PRIMITIVE_RECT = 0,",
+    "    SPRITE_PRIMITIVE_CIRCLE = 1,",
+    "    SPRITE_PRIMITIVE_TRIANGLE = 2,",
+    "} SpritePrimitiveKind;",
+    "",
+    ...(sprites.length === 0
+      ? []
+      : [
+          "typedef enum {",
+          ...sprites.map((sprite, index) => `    ${toSpriteIdConstant(sprite.id)} = ${index + 1},`),
+          "} SpriteId;",
+          "",
+        ]),
+    ...spriteBlocks.flatMap((block) => block.primitiveLines),
+    ...(spriteBlocks.length === 0
+      ? ["const SpriteDefinition CAT_MEOW_SPRITES[1] = { { 0, 0, 0, 0 } };", "const uint16_t CAT_MEOW_SPRITE_COUNT = 0;", ""]
+      : [
+          "const SpriteDefinition CAT_MEOW_SPRITES[] = {",
+          ...spriteBlocks.map((block) => block.definitionLine),
+          "};",
+          "",
+          "const uint16_t CAT_MEOW_SPRITE_COUNT = sizeof(CAT_MEOW_SPRITES) / sizeof(CAT_MEOW_SPRITES[0]);",
+          "",
+        ]),
+  ];
+}
+
+function createSoundSectionLines(assets: readonly SfxProjectAsset[]): string[] {
+  const blocks = assets
+    .map((asset, index) =>
+      createSoundDefinitionCBlock(asset.sfx, {
+        numericId: index + 1,
+        commandSymbol: toCIdentifier(asset.id, "SOUND", `COMMANDS_${index + 1}`),
+      }),
+    )
+    .filter((block): block is SoundDefinitionCBlock => block !== null);
+
+  return [
+    ...(blocks.length === 0
+      ? []
+      : [
+          "typedef enum {",
+          ...blocks.map((block, index) => `    ${block.idConstant} = ${index + 1},`),
+          "} SoundId;",
+          "",
+        ]),
+    ...blocks.flatMap((block) => block.sourceLines),
+    ...(blocks.length === 0
+      ? ["const SoundDefinition *CAT_MEOW_SOUNDS[1] = { 0 };", "const uint16_t CAT_MEOW_SOUND_COUNT = 0;", ""]
+      : [
+          "const SoundDefinition *CAT_MEOW_SOUNDS[] = {",
+          ...blocks.map((block) => `    &${block.definitionSymbol},`),
+          "};",
+          "",
+          "const uint16_t CAT_MEOW_SOUND_COUNT = sizeof(CAT_MEOW_SOUNDS) / sizeof(CAT_MEOW_SOUNDS[0]);",
+          "",
+        ]),
+  ];
+}
+
+function createMusicSectionLines(assets: readonly MusicProjectAsset[]): string[] {
+  const blocks = assets
+    .map((asset, index) =>
+      createMusicDefinitionCBlock(asset.music, {
+        numericId: index + 1,
+        instrumentSymbol: toCIdentifier(asset.id, "MUSIC", `INSTRUMENTS_${index + 1}`),
+        noteSymbol: toCIdentifier(asset.id, "MUSIC", `NOTES_${index + 1}`),
+      }),
+    )
+    .filter((block): block is MusicDefinitionCBlock => block !== null);
+
+  return [
+    ...(blocks.length === 0
+      ? []
+      : [
+          "typedef enum {",
+          ...blocks.map((block, index) => `    ${block.idConstant} = ${index + 1},`),
+          "} MusicId;",
+          "",
+        ]),
+    ...blocks.flatMap((block) => block.sourceLines),
+    ...(blocks.length === 0
+      ? ["const MusicDefinition *CAT_MEOW_MUSIC[1] = { 0 };", "const uint16_t CAT_MEOW_MUSIC_COUNT = 0;", ""]
+      : [
+          "const MusicDefinition *CAT_MEOW_MUSIC[] = {",
+          ...blocks.map((block) => `    &${block.definitionSymbol},`),
+          "};",
+          "",
+          "const uint16_t CAT_MEOW_MUSIC_COUNT = sizeof(CAT_MEOW_MUSIC) / sizeof(CAT_MEOW_MUSIC[0]);",
+          "",
+        ]),
   ];
 }
 
@@ -142,11 +263,8 @@ function formatSpriteBlock(sprite: SpriteProjectAsset, palette: Project["spriteP
     "};",
     "",
   ];
-  const definitionLine = `    { ${toSpriteIdConstant(sprite.id)}, ${clampInteger(sprite.sprite.width, 1, 65535)}, ${clampInteger(
-    sprite.sprite.height,
-    1,
-    65535,
-  )}, ${clampInteger(sprite.sprite.pivotX, -32768, 32767)}, ${clampInteger(sprite.sprite.pivotY, -32768, 32767)}, ${symbol}, ${
+  const canvasSize = getPackedCanvasSize(sprite) ?? 0;
+  const definitionLine = `    { ${toSpriteIdConstant(sprite.id)}, 0x${canvasSize.toString(16).padStart(2, "0")}, ${symbol}, ${
     primitives.length
   } },`;
 
@@ -233,7 +351,29 @@ function getCompactSizeIndex(value: number): number | null {
   }
 
   const roundedValue = Math.round(value);
-  const index = spriteSizeTable.slice(0, compactSizeTableLimit).findIndex((size) => size === roundedValue);
+  const index = spriteSizeTable.findIndex((size) => size === roundedValue);
+
+  return index === -1 ? null : index;
+}
+
+function getPackedCanvasSize(sprite: SpriteProjectAsset): number | null {
+  const widthIndex = getCanvasSizeIndex(sprite.sprite.width);
+  const heightIndex = getCanvasSizeIndex(sprite.sprite.height);
+
+  if (widthIndex === null || heightIndex === null) {
+    return null;
+  }
+
+  return (widthIndex << 4) | heightIndex;
+}
+
+function getCanvasSizeIndex(value: number): number | null {
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  const roundedValue = Math.round(value);
+  const index = spriteCanvasSizeTable.findIndex((size) => size === roundedValue);
 
   return index === -1 ? null : index;
 }

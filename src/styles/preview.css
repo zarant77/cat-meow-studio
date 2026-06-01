@@ -8,6 +8,10 @@
   padding: 9px 10px;
 }
 
+.app-footer .preview-panel {
+  margin-top: 0;
+}
+
 .waveform {
   display: block;
   flex: 1 1 auto;

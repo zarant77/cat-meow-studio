@@ -3,8 +3,14 @@ import { isValidSoundId, toSoundSymbolName } from "../utils/symbolName.js";
 
 const includeLine = '#include "../audio/sound_definition.h"';
 
-interface SoundCOptions {
+export interface SoundCOptions {
   numericId?: number;
+}
+
+export interface SoundDefinitionCBlock {
+  idConstant: string;
+  definitionSymbol: string;
+  sourceLines: string[];
 }
 
 export function exportSoundC(project: SoundProject, options: SoundCOptions = {}): string | null {
@@ -12,29 +18,50 @@ export function exportSoundC(project: SoundProject, options: SoundCOptions = {})
     return null;
   }
 
-  const commandLines = project.commands.map(formatCommandLine);
-  const symbolName = toSoundSymbolName(project.id);
-  const soundId = getSoundIdConstant(project.id);
+  const block = createSoundDefinitionCBlock(project, options);
+
+  if (block === null) {
+    return null;
+  }
 
   return [
     includeLine,
     "",
     "typedef enum {",
-    `    ${soundId} = ${clampMinimum(options.numericId ?? 1, 1)}`,
+    `    ${block.idConstant} = ${clampMinimum(options.numericId ?? 1, 1)}`,
     "} SoundId;",
     "",
-    "static const SoundCommand COMMANDS[] = {",
-    ...commandLines,
-    "};",
-    "",
-    `const SoundDefinition ${symbolName} = {`,
-    `    .id = ${soundId},`,
-    "",
-    "    .commands = COMMANDS,",
-    "    .command_count = sizeof(COMMANDS) / sizeof(COMMANDS[0]),",
-    "};",
-    "",
+    ...block.sourceLines,
   ].join("\n");
+}
+
+export function createSoundDefinitionCBlock(project: SoundProject, options: SoundCOptions & { commandSymbol?: string } = {}): SoundDefinitionCBlock | null {
+  if (!isValidSoundId(project.id)) {
+    return null;
+  }
+
+  const commandLines = project.commands.map(formatCommandLine);
+  const commandSymbol = options.commandSymbol ?? "COMMANDS";
+  const definitionSymbol = toSoundSymbolName(project.id);
+  const idConstant = getSoundIdConstant(project.id);
+
+  return {
+    idConstant,
+    definitionSymbol,
+    sourceLines: [
+      `static const SoundCommand ${commandSymbol}[] = {`,
+      ...commandLines,
+      "};",
+      "",
+      `const SoundDefinition ${definitionSymbol} = {`,
+      `    .id = ${idConstant},`,
+      "",
+      `    .commands = ${commandSymbol},`,
+      `    .command_count = sizeof(${commandSymbol}) / sizeof(${commandSymbol}[0]),`,
+      "};",
+      "",
+    ],
+  };
 }
 
 function formatCommandLine(command: SoundCommand): string {
@@ -83,7 +110,7 @@ function volumeToByte(value: number): number {
   return clampRange((clampRange(value, 0, 100) / 100) * 255, 0, 255);
 }
 
-function getSoundIdConstant(soundId: string): string {
+export function getSoundIdConstant(soundId: string): string {
   return `SOUND_ID_${toEnumToken(soundId)}`;
 }
 

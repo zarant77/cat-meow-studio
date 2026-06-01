@@ -3,7 +3,7 @@ import { getAssetExplorerItems } from "../state/assetExplorerState.js";
 import type { MusicEditorState } from "../state/musicEditorState.js";
 import type { AppActions, AppMode, AppStatus, ModeSurface, MusicRenderActions, RenderActions } from "./appTypes.js";
 import { renderMusicPreview, renderMusicWorkspaceSurface } from "./renderMusicEditor.js";
-import { renderAppShell, renderToolbar } from "./renderShell.js";
+import { renderAppShell } from "./renderShell.js";
 import { renderSfxSurface } from "./renderSfxEditor.js";
 import { destroySpritesWorkspace, renderSpriteEditorSurface } from "./renderSpriteEditor.js";
 
@@ -30,14 +30,13 @@ export function renderApp(
     ...renderAppShell({
       mode,
       status,
-      toolbar: renderToolbar(mode, actions.shell),
+      toolbar: surface.assetPanel,
       assetExplorerItems: getAssetExplorerItems(),
       assetExplorerActions: actions.assets,
-      assetPanel: surface.assetPanel,
       editorArea: surface.editorArea,
       inspectorPanel: surface.inspectorPanel,
       previewStatusArea: surface.previewStatusArea,
-      setMode: actions.setMode,
+      shellActions: actions.shell,
     }),
   );
 
@@ -53,7 +52,7 @@ function renderModeSurface(
   if (mode === "music") {
     destroySpritesWorkspace();
     return {
-      ...renderMusicWorkspaceSurface(musicState, actions.music),
+      ...renderMusicWorkspaceSurface(musicState, actions.music, actions.shell),
       previewStatusArea: renderMusicPreview(musicState),
     };
   }

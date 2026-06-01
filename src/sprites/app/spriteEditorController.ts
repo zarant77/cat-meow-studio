@@ -30,9 +30,8 @@ type SelectedPrimitive = {
 type SpriteEditorControls = {
   toolButtons: HTMLButtonElement[];
   spriteIdInput: HTMLInputElement;
-  canvasSizeInput: HTMLInputElement;
-  pivotXInput: HTMLInputElement;
-  pivotYInput: HTMLInputElement;
+  canvasWidthSelect: HTMLSelectElement;
+  canvasHeightSelect: HTMLSelectElement;
   colorInput: HTMLInputElement;
   colorHexInput: HTMLInputElement;
   selectionSummary: HTMLElement;
@@ -59,9 +58,8 @@ type SpriteEditorControls = {
 type SpriteEditorMount = AppElements & SpriteEditorControls;
 type SpriteAssetChangeListener = (sprite: SpriteAssetData) => void;
 
-const MIN_CANVAS_SIZE = 1;
-const MAX_CANVAS_SIZE = 2048;
 const PASTE_OFFSET = 8;
+const canvasSizeValues = [32, 64, 96, 128, 192, 256, 512, 768, 1024] as const;
 
 export class SpriteEditorController {
   private readonly state: AppState = createInitialState();
@@ -119,11 +117,13 @@ export class SpriteEditorController {
   }
 
   replaceSpriteAssetData(sprite: SpriteAssetData): void {
+    const width = normalizeCanvasSize(sprite.width);
+    const height = normalizeCanvasSize(sprite.height);
     this.state.spriteId = sprite.spriteId;
-    this.state.spriteWidth = sprite.width;
-    this.state.spriteHeight = sprite.height;
-    this.state.pivotX = sprite.pivotX;
-    this.state.pivotY = sprite.pivotY;
+    this.state.spriteWidth = width;
+    this.state.spriteHeight = height;
+    this.state.pivotX = Math.floor(width / 2);
+    this.state.pivotY = height;
     this.state.nodes = cloneNodes(sprite.nodes);
     this.state.undoStack = [];
     this.state.redoStack = [];
@@ -141,7 +141,7 @@ export class SpriteEditorController {
       width: 64,
       height: 64,
       pivotX: 32,
-      pivotY: 32,
+      pivotY: 64,
       nodes: [],
     });
   }
@@ -175,9 +175,8 @@ export class SpriteEditorController {
       this.syncUi();
     });
 
-    bindCommitInput(mount.canvasSizeInput, () => this.resizeCanvas(mount.canvasSizeInput.value));
-    bindCommitInput(mount.pivotXInput, () => this.updatePivot("x", mount.pivotXInput.value));
-    bindCommitInput(mount.pivotYInput, () => this.updatePivot("y", mount.pivotYInput.value));
+    mount.canvasWidthSelect.addEventListener("change", () => this.resizeCanvas(Number(mount.canvasWidthSelect.value), this.state.spriteHeight));
+    mount.canvasHeightSelect.addEventListener("change", () => this.resizeCanvas(this.state.spriteWidth, Number(mount.canvasHeightSelect.value)));
 
     mount.colorInput.addEventListener("input", () => this.applyColor(mount.colorInput.value));
     bindCommitInput(mount.colorHexInput, () => this.applyColor(mount.colorHexInput.value));
@@ -433,50 +432,25 @@ export class SpriteEditorController {
     this.canvasView?.render();
   }
 
-  private resizeCanvas(value: string): void {
-    const nextSize = this.parseCanvasSizeInput(value);
-
-    if (!nextSize || !this.mount) {
-      this.mount?.canvasSizeInput.classList.add("is-invalid");
+  private resizeCanvas(width: number, height: number): void {
+    if (!this.mount || !isCanvasSize(width) || !isCanvasSize(height)) {
       return;
     }
 
-    this.mount.canvasSizeInput.classList.remove("is-invalid");
-
-    if (nextSize.width === this.state.spriteWidth && nextSize.height === this.state.spriteHeight) {
+    if (width === this.state.spriteWidth && height === this.state.spriteHeight) {
       this.syncInputs();
       return;
     }
 
     this.recordHistory();
-    this.state.spriteWidth = nextSize.width;
-    this.state.spriteHeight = nextSize.height;
-    this.state.pivotX = Math.floor(nextSize.width / 2);
-    this.state.pivotY = Math.floor(nextSize.height / 2);
+    this.state.spriteWidth = width;
+    this.state.spriteHeight = height;
+    this.state.pivotX = Math.floor(width / 2);
+    this.state.pivotY = height;
     this.state.redoStack = [];
 
     this.syncInputs();
     this.canvasView?.setupCanvas();
-    this.canvasView?.render();
-  }
-
-  private updatePivot(axis: "x" | "y", value: string): void {
-    const parsedValue = Number(value);
-
-    if (!Number.isInteger(parsedValue)) {
-      this.syncInputs();
-      return;
-    }
-
-    this.recordHistory();
-
-    if (axis === "x") {
-      this.state.pivotX = parsedValue;
-    } else {
-      this.state.pivotY = parsedValue;
-    }
-
-    this.state.redoStack = [];
     this.canvasView?.render();
   }
 
@@ -806,12 +780,10 @@ export class SpriteEditorController {
     const alphaHex = this.state.alpha.toString(16).padStart(2, "0");
 
     this.mount.spriteIdInput.value = this.state.spriteId;
-    this.mount.canvasSizeInput.value = `${this.state.spriteWidth}x${this.state.spriteHeight}`;
-    this.mount.pivotXInput.value = String(this.state.pivotX);
-    this.mount.pivotYInput.value = String(this.state.pivotY);
+    this.mount.canvasWidthSelect.value = String(this.state.spriteWidth);
+    this.mount.canvasHeightSelect.value = String(this.state.spriteHeight);
     this.mount.colorInput.value = this.state.color;
     this.mount.colorHexInput.value = `${this.state.color}${alphaHex}`;
-    this.mount.canvasSizeInput.classList.remove("is-invalid");
     this.mount.colorHexInput.classList.remove("is-invalid");
   }
 
@@ -909,30 +881,6 @@ export class SpriteEditorController {
 
   private recordHistory(): void {
     this.state.undoStack.push(createHistorySnapshot(this.state));
-  }
-
-  private parseCanvasSizeInput(value: string): { width: number; height: number } | null {
-    const fields = value
-      .trim()
-      .split(/[x,;\s]+/i)
-      .filter(Boolean);
-
-    if (fields.length !== 2) {
-      return null;
-    }
-
-    const width = Number(fields[0]);
-    const height = Number(fields[1]);
-
-    if (!Number.isInteger(width) || !Number.isInteger(height)) {
-      return null;
-    }
-
-    if (width < MIN_CANVAS_SIZE || height < MIN_CANVAS_SIZE || width > MAX_CANVAS_SIZE || height > MAX_CANVAS_SIZE) {
-      return null;
-    }
-
-    return { width, height };
   }
 
   private parseColorInput(value: string): { color: string; alpha: number } | null {
@@ -1158,6 +1106,14 @@ function bindCommitInput(input: HTMLInputElement, commit: () => void): void {
       commit();
     }
   });
+}
+
+function isCanvasSize(value: number): boolean {
+  return Number.isInteger(value) && canvasSizeValues.some((size) => size === value);
+}
+
+function normalizeCanvasSize(value: number): number {
+  return isCanvasSize(value) ? value : 64;
 }
 
 function removeSelectedNodes(nodes: readonly SceneNode[], selectedIds: ReadonlySet<string>): SceneNode[] {

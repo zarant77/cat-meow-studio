@@ -47,7 +47,6 @@ export interface AppActions {
   music: MusicRenderActions;
   assets: AssetExplorerActions;
   spritePalette: SpritePaletteActions;
-  setMode: (mode: AppMode) => void;
 }
 
 export interface AssetExplorerActions {
