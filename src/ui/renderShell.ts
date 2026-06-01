@@ -1,10 +1,14 @@
-import type { AppMode, AppStatus, RenderActions } from "./appTypes.js";
+import type { AssetExplorerItem } from "../state/assetExplorerState.js";
+import type { AssetKind } from "../model/assets.js";
+import type { AppMode, AppStatus, AssetExplorerActions, RenderActions } from "./appTypes.js";
 import { appendChildren, createElement, createTextElement } from "./dom.js";
 
 interface AppShellParts {
   mode: AppMode;
   status: AppStatus | null;
   toolbar: HTMLElement;
+  assetExplorerItems: AssetExplorerItem[];
+  assetExplorerActions: AssetExplorerActions;
   assetPanel: HTMLElement;
   editorArea: HTMLElement;
   inspectorPanel: HTMLElement;
@@ -27,6 +31,7 @@ export function renderAppShell(parts: AppShellParts): HTMLElement[] {
   return [
     renderHeader(parts.mode, parts.setMode),
     parts.toolbar,
+    renderAssetExplorer(parts.assetExplorerItems, parts.mode, parts.assetExplorerActions),
     renderStatus(parts.status),
     renderWorkspace(parts.mode, parts.assetPanel, parts.editorArea, parts.inspectorPanel),
     parts.previewStatusArea,
@@ -45,6 +50,79 @@ export function renderModeSwitcher(mode: AppMode, setMode: (mode: AppMode) => vo
   }
 
   return modeTabs;
+}
+
+export function renderAssetExplorer(
+  items: readonly AssetExplorerItem[],
+  mode: AppMode,
+  actions: AssetExplorerActions,
+): HTMLElement {
+  const explorer = createElement("section", "asset-explorer");
+  explorer.setAttribute("aria-label", "Project assets");
+
+  const groups: Array<{ kind: AssetKind; label: string; mode: AppMode }> = [
+    { kind: "sprite", label: "Sprites", mode: "sprites" },
+    { kind: "music", label: "Music", mode: "music" },
+    { kind: "sfx", label: "SFX", mode: "sfx" },
+  ];
+
+  for (const group of groups) {
+    const groupElement = createElement("div", "asset-explorer-group");
+    const heading = createTextElement("h2", group.label);
+    const createButton = createTextElement("button", "+", "asset-explorer-create");
+    createButton.type = "button";
+    createButton.title = `Create ${group.label} asset`;
+    createButton.setAttribute("aria-label", `Create ${group.label} asset`);
+    createButton.addEventListener("click", () => actions.createAsset(group.kind));
+    groupElement.append(heading, createButton);
+
+    const list = createElement("div", "asset-explorer-list");
+    const groupItems = items.filter((item) => item.kind === group.kind);
+
+    if (groupItems.length === 0) {
+      list.append(createTextElement("span", "None", "asset-explorer-empty"));
+    } else {
+      for (const item of groupItems) {
+        const itemElement = createElement("div", `asset-explorer-row${item.isSelected ? " is-selected" : ""}`);
+        const button = createTextElement(
+          "button",
+          item.name,
+          `asset-explorer-item${mode === group.mode && item.isSelected ? " is-active" : ""}`,
+        );
+        button.type = "button";
+        button.title = `${group.label}: ${item.name}`;
+        button.addEventListener("click", () => actions.selectAsset(group.kind, item.id));
+        const renameButton = createAssetActionButton("Rename", "Rename asset");
+        const duplicateButton = createAssetActionButton("Duplicate", "Duplicate asset");
+        const deleteButton = createAssetActionButton("Delete", "Delete asset", "asset-explorer-action danger");
+        renameButton.addEventListener("click", () => {
+          const name = window.prompt("Rename asset", item.name);
+
+          if (name !== null) {
+            actions.renameAsset(group.kind, item.id, name);
+          }
+        });
+        duplicateButton.addEventListener("click", () => actions.duplicateAsset(group.kind, item.id));
+        deleteButton.addEventListener("click", () => actions.deleteAsset(group.kind, item.id));
+        itemElement.append(button, renameButton, duplicateButton, deleteButton);
+        list.append(itemElement);
+      }
+    }
+
+    groupElement.append(list);
+    explorer.append(groupElement);
+  }
+
+  return explorer;
+}
+
+function createAssetActionButton(label: string, title: string, className = "asset-explorer-action"): HTMLButtonElement {
+  const button = createTextElement("button", label, className);
+  button.type = "button";
+  button.title = title;
+  button.setAttribute("aria-label", title);
+
+  return button;
 }
 
 export function renderToolbar(mode: AppMode, actions: RenderActions): HTMLElement {
@@ -129,10 +207,13 @@ function renderHeader(mode: AppMode, setMode: (mode: AppMode) => void): HTMLElem
   const brand = createElement("div", "brand");
   const logo = createElement("img", "brand-logo");
   logo.src = "/favicon.png";
-  logo.alt = "Cat Meow logo";
+  logo.alt = "Cat Meow Studio";
 
   const brandText = createElement("div", "brand-text");
-  brandText.append(createTextElement("h1", "Cat Meow"), createTextElement("p", "Procedural sound & music editor for Little One"));
+  brandText.append(
+    createTextElement("h1", "Cat Meow Studio"),
+    createTextElement("p", "Procedural sprite, music, and sound effect generator for tiny .kkrieger-inspired games."),
+  );
   brand.append(logo, brandText);
 
   header.append(brand, renderModeSwitcher(mode, setMode));

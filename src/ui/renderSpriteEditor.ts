@@ -1,9 +1,13 @@
 import { SpriteEditorController } from "../sprites/app/spriteEditorController.js";
+import type { SpriteAssetData } from "../model/assets.js";
+import { createSpriteProjectAsset } from "../model/assetAdapters.js";
+import { upsertCurrentProjectAsset } from "../state/projectState.js";
 import type { ModeSurface } from "./appTypes.js";
 import { createElement, createField, createTextElement } from "./dom.js";
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
 
 const spriteEditorController = new SpriteEditorController();
+spriteEditorController.setAssetChangeListener(syncSpriteEditorAsset);
 
 export function renderSpriteEditorSurface(): ModeSurface {
   const mount = createSpriteMount();
@@ -220,6 +224,20 @@ export function redoSpriteEditor(): void {
 
 export function handleSpriteEditorKeyboardShortcut(event: KeyboardEvent): boolean {
   return spriteEditorController.handleKeyboardShortcut(event);
+}
+
+export function syncSpriteEditorAsset(): void {
+  upsertCurrentProjectAsset(createSpriteProjectAsset(spriteEditorController.getSpriteAssetData()));
+}
+
+export function createNewSpriteEditorAsset(spriteId: string): void {
+  spriteEditorController.createNewSprite(spriteId);
+  syncSpriteEditorAsset();
+}
+
+export function replaceSpriteEditorAsset(sprite: SpriteAssetData): void {
+  spriteEditorController.replaceSpriteAssetData(sprite);
+  syncSpriteEditorAsset();
 }
 
 function createToolButton(kind: string, label: string, title: string): HTMLButtonElement {

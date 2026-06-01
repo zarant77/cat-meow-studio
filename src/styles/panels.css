@@ -79,6 +79,124 @@ input.is-invalid {
   box-shadow: 0 0 0 3px var(--color-danger-soft);
 }
 
+.asset-explorer {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.asset-explorer-group {
+  display: grid;
+  grid-template-columns: auto 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.asset-explorer-group h2 {
+  color: var(--color-text-soft);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.asset-explorer-list {
+  display: flex;
+  gap: 5px;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.asset-explorer-row {
+  display: inline-grid;
+  grid-template-columns: minmax(64px, auto) repeat(3, 24px);
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.asset-explorer-item {
+  max-width: 12rem;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text-muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asset-explorer-create,
+.asset-explorer-action {
+  display: inline-grid;
+  place-items: center;
+  min-height: 24px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.asset-explorer-create {
+  width: 28px;
+}
+
+.asset-explorer-action {
+  width: 24px;
+  overflow: hidden;
+  text-indent: 100%;
+  white-space: nowrap;
+}
+
+.asset-explorer-action::before {
+  text-indent: 0;
+}
+
+.asset-explorer-action[aria-label="Rename asset"]::before {
+  content: "R";
+}
+
+.asset-explorer-action[aria-label="Duplicate asset"]::before {
+  content: "D";
+}
+
+.asset-explorer-action[aria-label="Delete asset"]::before {
+  content: "X";
+}
+
+.asset-explorer-item:hover,
+.asset-explorer-item.is-active,
+.asset-explorer-create:hover,
+.asset-explorer-action:hover {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.asset-explorer-action.danger:hover {
+  border-color: rgba(255, 92, 92, 0.42);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+.asset-explorer-empty {
+  color: var(--color-text-soft);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
 .range-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
@@ -572,5 +690,11 @@ input.is-invalid {
   .field-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+}
+
+@media (max-width: 980px) {
+  .asset-explorer {
+    grid-template-columns: 1fr;
   }
 }

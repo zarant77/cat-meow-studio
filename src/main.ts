@@ -7,6 +7,8 @@ import { exportSoundJson } from "./export/exportSoundJson.js";
 import { getSoundExportReadiness } from "./export/soundReadiness.js";
 import { importMusicJson } from "./import/importMusicJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
+import type { AssetId, AssetKind, ProjectAsset } from "./model/assets.js";
+import { createMusicProjectAsset, createSfxProjectAsset } from "./model/assetAdapters.js";
 import {
   addCommand,
   createNewProject as createBlankProject,
@@ -60,10 +62,25 @@ import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRen
 import {
   canRedoSpriteEditor,
   canUndoSpriteEditor,
+  createNewSpriteEditorAsset,
   handleSpriteEditorKeyboardShortcut,
+  replaceSpriteEditorAsset,
   redoSpriteEditor,
+  syncSpriteEditorAsset,
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
+import {
+  deleteProjectAsset,
+  duplicateProjectAsset,
+  findProjectAsset,
+  getFirstProjectAsset,
+  getSelectedProjectAssetId,
+  renameProjectAsset,
+  selectProjectAsset,
+  setSelectedProjectAsset,
+  upsertCurrentProjectAsset,
+} from "./state/projectState.js";
+import { getAssetExplorerItems } from "./state/assetExplorerState.js";
 import { downloadFile } from "./utils/downloadFile.js";
 import { readTextFile } from "./utils/readTextFile.js";
 
@@ -79,6 +96,7 @@ let activeMode: AppMode = "sfx";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
 restoreAutosavedProjects();
+syncCurrentAssets();
 
 const actions: RenderActions = {
   undo() {
@@ -344,11 +362,25 @@ const musicActions: MusicRenderActions = {
 const appActions: AppActions = {
   shell: actions,
   music: musicActions,
+  assets: {
+    createAsset(kind) {
+      createAsset(kind);
+    },
+    selectAsset(kind, id) {
+      selectAsset(kind, id);
+    },
+    renameAsset(kind, id, name) {
+      renameAsset(kind, id, name);
+    },
+    duplicateAsset(kind, id) {
+      duplicateAsset(kind, id);
+    },
+    deleteAsset(kind, id) {
+      deleteAsset(kind, id);
+    },
+  },
   setMode(mode) {
-    activeMode = mode;
-    saveAutosavedActiveMode(mode);
-    preview.stop();
-    render();
+    switchMode(mode);
   },
 };
 
@@ -358,6 +390,152 @@ function render(): void {
   }
 
   renderApp(app, activeMode, getEditorState(), getMusicEditorState(), status, appActions);
+}
+
+function createAsset(kind: AssetKind): void {
+  const assetId = createUniqueAssetId(kind);
+
+  if (kind === "sprite") {
+    setSelectedProjectAsset("sprite", assetId);
+    createNewSpriteEditorAsset(assetId);
+    switchMode("sprites");
+    return;
+  }
+
+  if (kind === "music") {
+    setSelectedProjectAsset("music", assetId);
+    createNewMusicProject();
+    updateMusicProject({ id: assetId });
+    renderAfterMusicChange();
+    switchMode("music");
+    return;
+  }
+
+  setSelectedProjectAsset("sfx", assetId);
+  createBlankProject();
+  updateProjectId(assetId);
+  saveCurrentProject();
+  switchMode("sfx");
+}
+
+function selectAsset(kind: AssetKind, id: AssetId): void {
+  const asset = selectProjectAsset(kind, id);
+
+  if (asset === null) {
+    return;
+  }
+
+  loadProjectAsset(asset);
+}
+
+function renameAsset(kind: AssetKind, id: AssetId, name: string): void {
+  const wasSelected = getSelectedProjectAssetId(kind) === id;
+  const renamedAsset = renameProjectAsset(kind, id, name);
+
+  if (renamedAsset === null) {
+    return;
+  }
+
+  if (wasSelected) {
+    loadProjectAsset(renamedAsset);
+    return;
+  }
+
+  render();
+}
+
+function duplicateAsset(kind: AssetKind, id: AssetId): void {
+  const duplicatedAsset = duplicateProjectAsset(kind, id);
+
+  if (duplicatedAsset === null) {
+    return;
+  }
+
+  loadProjectAsset(duplicatedAsset);
+}
+
+function deleteAsset(kind: AssetKind, id: AssetId): void {
+  const asset = findProjectAsset(kind, id);
+
+  if (asset === null || !window.confirm(`Delete ${asset.name}?`)) {
+    return;
+  }
+
+  const wasSelected = getSelectedProjectAssetId(kind) === id;
+  deleteProjectAsset(kind, id);
+
+  if (!wasSelected) {
+    render();
+    return;
+  }
+
+  const fallbackAsset = getFirstProjectAsset(kind);
+
+  if (fallbackAsset !== null) {
+    loadProjectAsset(fallbackAsset);
+    return;
+  }
+
+  createAsset(kind);
+}
+
+function loadProjectAsset(asset: ProjectAsset): void {
+  selectProjectAsset(asset.kind, asset.id);
+
+  if (asset.kind === "sprite") {
+    replaceSpriteEditorAsset(asset.sprite);
+    switchMode("sprites");
+    return;
+  }
+
+  if (asset.kind === "music") {
+    replaceCurrentMusicProject(asset.music, { recordHistory: false });
+    saveCurrentMusicProject();
+    switchMode("music");
+    return;
+  }
+
+  replaceCurrentProject(asset.sfx, { recordHistory: false });
+  saveCurrentProject();
+  switchMode("sfx");
+}
+
+function switchMode(mode: AppMode): void {
+  activeMode = mode;
+  saveAutosavedActiveMode(mode);
+  preview.stop();
+  render();
+}
+
+function createUniqueAssetId(kind: AssetKind): AssetId {
+  const baseId = getAssetBaseId(kind);
+  const existingIds = new Set(getAssetExplorerItems().filter((asset) => asset.kind === kind).map((asset) => asset.id));
+
+  if (!existingIds.has(baseId)) {
+    return baseId;
+  }
+
+  let suffix = 2;
+  let candidate = `${baseId}_${suffix}`;
+
+  while (existingIds.has(candidate)) {
+    suffix += 1;
+    candidate = `${baseId}_${suffix}`;
+  }
+
+  return candidate;
+}
+
+function getAssetBaseId(kind: AssetKind): AssetId {
+  if (kind === "sprite") {
+    return "sprite";
+  }
+
+  if (kind === "music") {
+    return "music";
+  }
+
+  return "sound";
 }
 
 function createJsonFileInput(): HTMLInputElement {
@@ -437,6 +615,7 @@ function renderAfterEditorChange(): void {
 
 function saveCurrentProject(): void {
   saveAutosavedProject(getCurrentProject());
+  syncCurrentSfxAsset();
 }
 
 function renderAfterMusicChange(): void {
@@ -446,6 +625,21 @@ function renderAfterMusicChange(): void {
 
 function saveCurrentMusicProject(): void {
   saveAutosavedMusicProject(getCurrentMusicProject());
+  syncCurrentMusicAsset();
+}
+
+function syncCurrentAssets(): void {
+  syncCurrentSfxAsset();
+  syncCurrentMusicAsset();
+  syncSpriteEditorAsset();
+}
+
+function syncCurrentSfxAsset(): void {
+  upsertCurrentProjectAsset(createSfxProjectAsset(getCurrentProject()));
+}
+
+function syncCurrentMusicAsset(): void {
+  upsertCurrentProjectAsset(createMusicProjectAsset(getCurrentMusicProject()));
 }
 
 function restoreAutosavedProjects(): void {

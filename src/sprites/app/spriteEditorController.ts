@@ -1,4 +1,5 @@
 import { CanvasView } from "../canvas/CanvasView.js";
+import type { SpriteAssetData } from "../../model/assets.js";
 import type { GroupNode, SceneNode, SceneNodeEntry } from "../document/CatPaintDocument.js";
 import {
   cloneNodes,
@@ -56,6 +57,7 @@ type SpriteEditorControls = {
 };
 
 type SpriteEditorMount = AppElements & SpriteEditorControls;
+type SpriteAssetChangeListener = (sprite: SpriteAssetData) => void;
 
 const MIN_CANVAS_SIZE = 1;
 const MAX_CANVAS_SIZE = 2048;
@@ -67,6 +69,7 @@ export class SpriteEditorController {
   private renderPrimitiveList = (): void => {};
   private canvasView: CanvasView | null = null;
   private mount: SpriteEditorMount | null = null;
+  private assetChangeListener: SpriteAssetChangeListener | null = null;
 
   bind(mount: SpriteEditorMount): void {
     this.canvasView?.destroy();
@@ -98,6 +101,49 @@ export class SpriteEditorController {
     this.canvasView?.destroy();
     this.canvasView = null;
     this.mount = null;
+  }
+
+  getSpriteAssetData(): SpriteAssetData {
+    return {
+      spriteId: this.state.spriteId,
+      width: this.state.spriteWidth,
+      height: this.state.spriteHeight,
+      pivotX: this.state.pivotX,
+      pivotY: this.state.pivotY,
+      nodes: cloneNodes(this.state.nodes),
+    };
+  }
+
+  setAssetChangeListener(listener: SpriteAssetChangeListener): void {
+    this.assetChangeListener = listener;
+  }
+
+  replaceSpriteAssetData(sprite: SpriteAssetData): void {
+    this.state.spriteId = sprite.spriteId;
+    this.state.spriteWidth = sprite.width;
+    this.state.spriteHeight = sprite.height;
+    this.state.pivotX = sprite.pivotX;
+    this.state.pivotY = sprite.pivotY;
+    this.state.nodes = cloneNodes(sprite.nodes);
+    this.state.undoStack = [];
+    this.state.redoStack = [];
+    this.state.selectedNodeIds = [];
+    this.state.collapsedGroupIds = [];
+    this.syncInputs();
+    this.canvasView?.setupCanvas();
+    this.canvasView?.render();
+    this.syncUi();
+  }
+
+  createNewSprite(spriteId: string): void {
+    this.replaceSpriteAssetData({
+      spriteId,
+      width: 64,
+      height: 64,
+      pivotX: 32,
+      pivotY: 32,
+      nodes: [],
+    });
   }
 
   private bindControls(mount: SpriteEditorMount): void {
@@ -736,6 +782,7 @@ export class SpriteEditorController {
     this.syncSelectedControls();
     this.syncStatus();
     this.syncShellHistoryControls();
+    this.assetChangeListener?.(this.getSpriteAssetData());
   }
 
   private syncInputs(): void {
