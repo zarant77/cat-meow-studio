@@ -82,7 +82,7 @@ function readProject(value: unknown): Project | null {
   const spritePalette = readSpritePalette(value.spritePalette);
 
   for (const assetValue of value.assets) {
-    const asset = readProjectAsset(assetValue);
+    const asset = readProjectAsset(assetValue, spritePalette);
 
     if (asset === null) {
       return null;
@@ -117,14 +117,14 @@ function readSpritePalette(value: unknown): SpritePaletteColor[] {
     });
   }
 
-  if (colors.length === 0 || colors[0].rgba !== "#00000000") {
+  if (colors.length === 0) {
     return createDefaultSpritePalette();
   }
 
   return colors;
 }
 
-function readProjectAsset(value: unknown): ProjectAsset | null {
+function readProjectAsset(value: unknown, fallbackSpritePalette: SpritePaletteColor[]): ProjectAsset | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -136,7 +136,7 @@ function readProjectAsset(value: unknown): ProjectAsset | null {
   }
 
   if (base.kind === "sprite") {
-    const sprite = readSpriteAssetData(value.sprite);
+    const sprite = readSpriteAssetData(value.sprite, fallbackSpritePalette);
 
     return sprite === null ? null : { ...base, kind: "sprite", sprite };
   }
@@ -178,7 +178,7 @@ function readSelectedAssetIds(value: unknown): SelectedAssetIds | null {
   };
 }
 
-function readSpriteAssetData(value: unknown): SpriteAssetData | null {
+function readSpriteAssetData(value: unknown, fallbackPalette: SpritePaletteColor[] = createDefaultSpritePalette()): SpriteAssetData | null {
   if (
     !isRecord(value) ||
     !isString(value.spriteId) ||
@@ -197,12 +197,15 @@ function readSpriteAssetData(value: unknown): SpriteAssetData | null {
     return null;
   }
 
+  const palette = Array.isArray(value.palette) ? readSpritePalette(value.palette) : fallbackPalette.map((color) => ({ ...color }));
+
   return {
     spriteId: value.spriteId,
     width: value.width,
     height: value.height,
     pivotX: value.pivotX,
     pivotY: value.pivotY,
+    palette,
     nodes,
   };
 }
@@ -466,7 +469,6 @@ function isRgba(value: unknown): value is string {
 
 function createDefaultSpritePalette(): SpritePaletteColor[] {
   return [
-    { name: "Transparent", rgba: "#00000000" },
     { name: "Ink", rgba: "#111111ff" },
     { name: "White", rgba: "#ffffffff" },
   ];

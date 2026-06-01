@@ -27,6 +27,7 @@ export interface SpriteAssetData {
   height: number;
   pivotX: number;
   pivotY: number;
+  palette: SpritePaletteColor[];
   nodes: SceneNode[];
 }
 

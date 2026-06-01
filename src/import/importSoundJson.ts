@@ -30,8 +30,8 @@ export function importSoundJson(text: string): ImportSoundJsonResult {
     return fail("The sound file must be a JSON object.");
   }
 
-  if (parsed.type !== "sound") {
-    return fail('The sound file type must be "sound".');
+  if (parsed.type !== "sfx" && parsed.type !== "sound") {
+    return fail('The sound file type must be "sfx".');
   }
 
   if (typeof parsed.id !== "string" || !isValidSoundId(parsed.id)) {

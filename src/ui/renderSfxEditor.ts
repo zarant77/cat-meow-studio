@@ -1,9 +1,11 @@
+import { Play, Plus, Redo2, Square, Undo2 } from "lucide";
 import { getSoundExportReadiness } from "../export/soundReadiness.js";
 import type { SoundProject } from "../model/soundProject.js";
 import type { EditorState } from "../state/editorState.js";
 import { sanitizeSoundId } from "../utils/validation.js";
 import type { ModeSurface, RenderActions } from "./appTypes.js";
-import { createElement, createField, createTextElement } from "./dom.js";
+import { createElement, createField, createIconButton, createTextElement } from "./dom.js";
+import type { AppIcon } from "./icons.js";
 import { renderCommands } from "./renderCommands.js";
 import { renderInspector } from "./renderInspector.js";
 import { renderPresetPanel } from "./renderPresets.js";
@@ -22,19 +24,17 @@ export function renderSfxSurface(state: EditorState, actions: RenderActions): Mo
 
 function renderSfxToolbar(actions: RenderActions): HTMLElement {
   const panel = renderAssetSidebarPanel("sfx-toolbar-panel toolbar");
-  const buttons: Array<[string, string, () => void]> = [
-    ["↶", "Undo", actions.undo],
-    ["↷", "Redo", actions.redo],
-    ["▶", "Play preview", actions.playSound],
-    ["■", "Stop preview", actions.stopSound],
-    ["+", "Add command", actions.addCommand],
+  const buttons: Array<[AppIcon, string, () => void]> = [
+    [Undo2, "Undo", actions.undo],
+    [Redo2, "Redo", actions.redo],
+    [Play, "Play preview", actions.playSound],
+    [Square, "Stop preview", actions.stopSound],
+    [Plus, "Add command", actions.addCommand],
   ];
 
-  for (const [label, title, onClick] of buttons) {
-    const button = createTextElement("button", label, "tool-button");
+  for (const [icon, title, onClick] of buttons) {
+    const button = createIconButton(icon, title, "tool-button");
     button.type = "button";
-    button.title = title;
-    button.setAttribute("aria-label", title);
     button.addEventListener("click", onClick);
     panel.append(button);
   }

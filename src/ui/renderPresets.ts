@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide";
 import { formatPresetName, soundPresets } from "../model/soundPresets.js";
 import type { EditorState } from "../state/editorState.js";
 import type { RenderActions } from "./appTypes.js";
@@ -28,7 +29,7 @@ export function renderPresetPanel(state: EditorState, actions: RenderActions): H
 
   presetSelect.addEventListener("change", () => actions.createFromPreset(presetSelect.value));
 
-  const resetButton = createIconButton("↺", "Reset to selected preset");
+  const resetButton = createIconButton(RotateCcw, "Reset to selected preset");
   resetButton.disabled = state.selectedPresetId === null;
   resetButton.addEventListener("click", actions.resetToPreset);
   presetRow.append(presetSelect, resetButton);

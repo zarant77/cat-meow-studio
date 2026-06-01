@@ -30,6 +30,7 @@ export function createSpriteProjectAsset(sprite: SpriteAssetData, metadata: Asse
     kind: "sprite",
     sprite: {
       ...sprite,
+      palette: sprite.palette.map((color) => ({ ...color })),
       nodes: cloneNodes(sprite.nodes),
     },
   };

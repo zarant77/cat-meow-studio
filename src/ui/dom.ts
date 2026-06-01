@@ -1,3 +1,6 @@
+import type { AppIcon } from "./icons.js";
+import { createIcon } from "./icons.js";
+
 export function createElement<K extends keyof HTMLElementTagNameMap>(
   tagName: K,
   className?: string,
@@ -28,11 +31,12 @@ export function appendChildren(parent: Element, children: Array<Node | string>):
   }
 }
 
-export function createIconButton(label: string, title: string, className = "icon-button"): HTMLButtonElement {
-  const button = createTextElement("button", label, className);
+export function createIconButton(icon: AppIcon, title: string, className = "icon-button"): HTMLButtonElement {
+  const button = createElement("button", className);
   button.type = "button";
   button.title = title;
   button.setAttribute("aria-label", title);
+  button.append(createIcon(icon));
 
   return button;
 }

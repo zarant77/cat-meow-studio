@@ -1,8 +1,21 @@
+import {
+  ChevronDown,
+  Copy,
+  Download,
+  Image,
+  Maximize2,
+  Music,
+  Pencil,
+  Plus,
+  Trash2,
+  Upload,
+  Volume2,
+} from "lucide";
 import type { AssetExplorerItem } from "../state/assetExplorerState.js";
 import type { AssetKind } from "../model/assets.js";
-import type { CurrentUser } from "../storage/backendProjectPersistence.js";
-import type { AppMode, AppStatus, AssetExplorerActions, ProjectSummary, RenderActions } from "./appTypes.js";
+import type { AppMode, AppStatus, AssetExplorerActions, RenderActions } from "./appTypes.js";
 import { appendChildren, createElement, createTextElement } from "./dom.js";
+import { createIcon, createIconLabel, type AppIcon } from "./icons.js";
 
 interface AppShellParts {
   mode: AppMode;
@@ -14,14 +27,11 @@ interface AppShellParts {
   inspectorPanel: HTMLElement;
   previewStatusArea: HTMLElement;
   shellActions: RenderActions;
-  currentUser: CurrentUser;
-  projects: readonly ProjectSummary[];
-  activeBackendProjectId: string | null;
 }
 
 export function renderAppShell(parts: AppShellParts): HTMLElement[] {
   return [
-    renderHeader(parts.assetExplorerItems, parts.assetExplorerActions, parts.shellActions, parts.currentUser, parts.projects, parts.activeBackendProjectId),
+    renderHeader(parts.assetExplorerItems, parts.assetExplorerActions, parts.shellActions),
     renderWorkspace(
       parts.mode,
       parts.toolbar,
@@ -55,9 +65,6 @@ function renderHeader(
   assetExplorerItems: readonly AssetExplorerItem[],
   assetExplorerActions: AssetExplorerActions,
   shellActions: RenderActions,
-  currentUser: CurrentUser,
-  projects: readonly ProjectSummary[],
-  activeBackendProjectId: string | null,
 ): HTMLElement {
   const header = createElement("header", "app-header");
   const brand = createElement("div", "brand");
@@ -71,79 +78,41 @@ function renderHeader(
 
   const nav = createElement("nav", "asset-nav");
   nav.append(
-    renderProjectMenu(projects, activeBackendProjectId, shellActions),
-    renderAssetMenu("▦ Sprites", "sprite", "+ New Sprite", assetExplorerItems, assetExplorerActions),
-    renderAssetMenu("♪ Music", "music", "+ New Music", assetExplorerItems, assetExplorerActions),
-    renderAssetMenu("◒ SFX", "sfx", "+ New SFX", assetExplorerItems, assetExplorerActions),
+    renderAssetMenu("Sprites", Image, "sprite", "New Sprite", assetExplorerItems, assetExplorerActions),
+    renderAssetMenu("Music", Music, "music", "New Music", assetExplorerItems, assetExplorerActions),
+    renderAssetMenu("SFX", Volume2, "sfx", "New SFX", assetExplorerItems, assetExplorerActions),
   );
 
   const actions = createElement("div", "header-actions");
-  const exportButton = createTextElement("button", "⇩ Export", "header-action-button");
-  const adminButton = createTextElement("button", "⚙ Admin", "header-action-button");
-  const fullscreenButton = createTextElement("button", "⛶", "header-action-button icon-only");
+  const importButton = createHeaderButton(Upload, "Import", "Import JSON asset");
+  const exportButton = createHeaderButton(Download, "Export", "Export current asset JSON");
+  const fullscreenButton = createHeaderButton(Maximize2, null, "Fullscreen", "header-action-button icon-only");
+  importButton.type = "button";
   exportButton.type = "button";
-  adminButton.type = "button";
   fullscreenButton.type = "button";
-  exportButton.title = "Export Little One assets";
-  adminButton.title = "Manage users and projects";
-  fullscreenButton.title = "Fullscreen";
-  fullscreenButton.setAttribute("aria-label", "Fullscreen");
-  exportButton.addEventListener("click", shellActions.exportAllC);
-  adminButton.addEventListener("click", shellActions.openAdmin);
+  importButton.addEventListener("click", shellActions.importJson);
+  exportButton.addEventListener("click", shellActions.exportCurrentJson);
   fullscreenButton.addEventListener("click", shellActions.toggleFullscreen);
-  actions.append(exportButton);
-
-  if (currentUser.role === "admin") {
-    actions.append(adminButton);
-  }
-
-  actions.append(fullscreenButton);
+  actions.append(importButton, exportButton, fullscreenButton);
 
   header.append(brand, nav, actions);
   return header;
 }
 
-function renderProjectMenu(projects: readonly ProjectSummary[], activeBackendProjectId: string | null, shellActions: RenderActions): HTMLElement {
-  const menu = createElement("details", "asset-menu");
-  const activeProject = projects.find((project) => project.storageProjectId === activeBackendProjectId) ?? projects[0] ?? null;
-  const summary = createTextElement("summary", `▣ ${activeProject?.name ?? "Project"} ▼`, "asset-menu-summary");
-  const body = createElement("div", "asset-menu-body");
-  menu.addEventListener("toggle", () => closeOtherAssetMenus(menu));
-
-  if (projects.length === 0) {
-    body.append(createTextElement("span", "No projects", "asset-menu-empty"));
-  } else {
-    for (const project of projects) {
-      const button = createTextElement(
-        "button",
-        project.name,
-        `asset-menu-item${project.storageProjectId === activeBackendProjectId ? " is-selected" : ""}`,
-      );
-      button.type = "button";
-      button.title = `${project.projectId} · ${project.ownerEmail}`;
-      button.addEventListener("click", () => {
-        shellActions.selectBackendProject(project.storageProjectId);
-        menu.open = false;
-      });
-      body.append(button);
-    }
-  }
-
-  menu.append(summary, body);
-  return menu;
-}
-
 function renderAssetMenu(
   label: string,
+  icon: AppIcon,
   kind: AssetKind,
   createLabel: string,
   items: readonly AssetExplorerItem[],
   actions: AssetExplorerActions,
 ): HTMLElement {
   const menu = createElement("details", "asset-menu");
-  const summary = createTextElement("summary", `${label} ▼`, "asset-menu-summary");
+  const summary = createElement("summary", "asset-menu-summary");
+  summary.append(createIcon(icon), document.createTextNode(label), createIcon(ChevronDown, "lucide-icon asset-menu-chevron"));
   const body = createElement("div", "asset-menu-body");
-  const createButton = createTextElement("button", createLabel, "asset-menu-item create");
+  const createButton = createElement("button", "asset-menu-item create");
+  createButton.append(createIconLabel(Plus, createLabel));
   createButton.type = "button";
   menu.addEventListener("toggle", () => closeOtherAssetMenus(menu));
   createButton.addEventListener("click", () => {
@@ -159,9 +128,9 @@ function renderAssetMenu(
     for (const item of groupItems) {
       const row = createElement("div", "asset-menu-row");
       const button = createTextElement("button", item.name, `asset-menu-item${item.isSelected ? " is-selected" : ""}`);
-      const renameButton = createAssetMenuActionButton("R", "Rename asset");
-      const duplicateButton = createAssetMenuActionButton("D", "Duplicate asset");
-      const deleteButton = createAssetMenuActionButton("×", "Delete asset", "asset-menu-action danger");
+      const renameButton = createAssetMenuActionButton(Pencil, "Rename asset");
+      const duplicateButton = createAssetMenuActionButton(Copy, "Duplicate asset");
+      const deleteButton = createAssetMenuActionButton(Trash2, "Delete asset", "asset-menu-action danger");
       button.type = "button";
       button.title = item.name;
       button.addEventListener("click", () => {
@@ -204,11 +173,26 @@ function closeOtherAssetMenus(menu: HTMLDetailsElement): void {
   });
 }
 
-function createAssetMenuActionButton(label: string, title: string, className = "asset-menu-action"): HTMLButtonElement {
-  const button = createTextElement("button", label, className);
+function createHeaderButton(icon: AppIcon, label: string | null, title: string, className = "header-action-button"): HTMLButtonElement {
+  const button = createElement("button", className);
+  button.append(createIcon(icon));
+
+  if (label !== null) {
+    button.append(document.createTextNode(label));
+  }
+
+  button.title = title;
+  button.setAttribute("aria-label", title);
+
+  return button;
+}
+
+function createAssetMenuActionButton(icon: AppIcon, title: string, className = "asset-menu-action"): HTMLButtonElement {
+  const button = createElement("button", className);
   button.type = "button";
   button.title = title;
   button.setAttribute("aria-label", title);
+  button.append(createIcon(icon));
 
   return button;
 }

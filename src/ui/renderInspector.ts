@@ -1,3 +1,4 @@
+import { RotateCcw } from "lucide";
 import { soundWaves } from "../model/soundProject.js";
 import { getSelectedCommand, type EditorState } from "../state/editorState.js";
 import {
@@ -12,7 +13,7 @@ import type { RenderActions } from "./appTypes.js";
 export function renderInspector(state: EditorState, actions: RenderActions): HTMLElement {
   const inspector = createElement("aside", "panel inspector-panel sfx-inspector-panel");
   const panelTitle = createElement("div", "panel-title");
-  const resetButton = createIconButton("↺", "Reset command to defaults");
+  const resetButton = createIconButton(RotateCcw, "Reset command to defaults");
   resetButton.disabled = state.selectedCommandId === null;
   resetButton.addEventListener("click", actions.resetSelectedCommand);
   panelTitle.append(createTextElement("h2", "Command"), resetButton);

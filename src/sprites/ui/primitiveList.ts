@@ -1,6 +1,8 @@
+import { ArrowDown, ArrowUp, ChevronDown, ChevronRight, Eye, EyeOff, Group, Lock, LockOpen, Pencil } from "lucide";
 import type { AppState } from "../app/AppState.js";
 import type { SceneNode } from "../document/CatPaintDocument.js";
 import type { Primitive } from "../primitives/Primitive.js";
+import { createIcon, type AppIcon } from "../../ui/icons.js";
 import type { AppElements } from "./elements.js";
 
 type PrimitiveListCallbacks = {
@@ -164,20 +166,22 @@ function renderNodes(
     toggle.ariaLabel = node.type === "group" ? (isCollapsed ? "Expand group" : "Collapse group") : "No children";
     toggle.disabled = node.type !== "group";
     toggle.dataset.nodeId = node.id;
-    toggle.textContent = node.type === "group" ? (isCollapsed ? "▸" : "▾") : "";
+    if (node.type === "group") {
+      toggle.append(createIcon(isCollapsed ? ChevronRight : ChevronDown));
+    }
 
     const visibilityButton = createIconButton({
       className: "primitive-list-visibility-button",
       label: node.visible ? `Hide ${node.name}` : `Show ${node.name}`,
       title: node.visible ? "Hide" : "Show",
-      text: node.visible ? "◉" : "○",
+      icon: node.visible ? Eye : EyeOff,
       onClick: () => callbacks.onToggleNodeVisibility(node.id),
     });
     const lockButton = createIconButton({
       className: "primitive-list-lock-button",
       label: node.locked ? `Unlock ${node.name}` : `Lock ${node.name}`,
       title: node.locked ? "Unlock" : "Lock",
-      text: node.locked ? "◆" : "◇",
+      icon: node.locked ? Lock : LockOpen,
       onClick: () => callbacks.onToggleNodeLocked(node.id),
     });
     const kind = createNodeMarker(node);
@@ -190,7 +194,7 @@ function renderNodes(
       className: "primitive-list-move-button",
       label: `Move ${node.name} up`,
       title: "Move up",
-      text: "↑",
+      icon: ArrowUp,
       disabled: index === 0,
       onClick: () => callbacks.onMoveNode(node.id, "up"),
     });
@@ -198,7 +202,7 @@ function renderNodes(
       className: "primitive-list-move-button",
       label: `Move ${node.name} down`,
       title: "Move down",
-      text: "↓",
+      icon: ArrowDown,
       disabled: index === nodes.length - 1,
       onClick: () => callbacks.onMoveNode(node.id, "down"),
     });
@@ -216,7 +220,7 @@ function createIconButton(input: {
   className: string;
   label: string;
   title: string;
-  text: string;
+  icon: AppIcon;
   disabled?: boolean;
   onClick: () => void;
 }): HTMLButtonElement {
@@ -226,7 +230,7 @@ function createIconButton(input: {
   button.type = "button";
   button.title = input.title;
   button.ariaLabel = input.label;
-  button.textContent = input.text;
+  button.append(createIcon(input.icon));
   button.disabled = input.disabled ?? false;
 
   button.addEventListener("mousedown", (event) => {
@@ -248,7 +252,7 @@ function createNodeMarker(node: SceneNode): HTMLElement {
 
   if (node.type === "group") {
     marker.className = "primitive-list-kind primitive-list-group-marker";
-    marker.textContent = "▣";
+    marker.append(createIcon(Group));
     marker.title = "Group";
     return marker;
   }
@@ -325,7 +329,7 @@ function createRenameButton(node: SceneNode, requestRename: (nodeId: string) => 
   button.title = "Rename";
   button.ariaLabel = `Rename ${node.name}`;
   button.dataset.nodeId = node.id;
-  button.textContent = "✎";
+  button.append(createIcon(Pencil));
 
   button.addEventListener("mousedown", (event) => {
     event.preventDefault();

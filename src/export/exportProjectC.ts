@@ -441,7 +441,7 @@ function primitiveToRgba(primitive: Primitive): string {
 }
 
 function rgbaToCColor(rgba: string): string {
-  const normalizedRgba = /^#[0-9a-fA-F]{8}$/.test(rgba) ? rgba.toLowerCase() : "#00000000";
+  const normalizedRgba = /^#[0-9a-fA-F]{8}$/.test(rgba) ? rgba.toLowerCase() : "#000000ff";
 
   return `0x${normalizedRgba.slice(1)}u`;
 }

@@ -1,9 +1,34 @@
+import {
+  BringToFront,
+  Circle,
+  ClipboardPaste,
+  Copy,
+  FlipHorizontal,
+  FlipVertical,
+  Group,
+  PaintBucket,
+  Palette,
+  Pipette,
+  Plus,
+  Redo2,
+  RotateCw,
+  Scaling,
+  SendToBack,
+  Square,
+  StepBack,
+  StepForward,
+  Trash2,
+  Triangle,
+  Undo2,
+  Ungroup,
+} from "lucide";
 import { SpriteEditorController } from "../sprites/app/spriteEditorController.js";
 import type { SpriteAssetData, SpritePaletteColor } from "../model/assets.js";
 import { createSpriteProjectAsset } from "../model/assetAdapters.js";
 import { getSpritePalette, isSpritePaletteColorUsed, upsertCurrentProjectAsset } from "../state/projectState.js";
 import type { ModeSurface, SpritePaletteActions } from "./appTypes.js";
 import { createElement, createField, createTextElement } from "./dom.js";
+import { createIcon, type AppIcon } from "./icons.js";
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
 
 const spriteEditorController = new SpriteEditorController();
@@ -80,19 +105,22 @@ function createSpriteMount(paletteActions: SpritePaletteActions): {
   colorHexInput.hidden = true;
   colorHexInput.dataset.field = "spriteColor";
 
-  const toolButtons = [
-    createToolButton("rect", "▭", "Rectangle"),
-    createToolButton("circle", "○", "Circle"),
-    createToolButton("triangle", "△", "Triangle"),
-    createToolButton("fill", "▰", "Fill"),
-    createToolButton("eyedropper", "⌕", "Pick color"),
-    createToolButton("rotate", "↻", "Rotate"),
-    createToolButton("scale", "□", "Scale"),
+  const primitiveToolButtons = [
+    createToolButton("rect", Square, "Rectangle"),
+    createToolButton("circle", Circle, "Circle"),
+    createToolButton("triangle", Triangle, "Triangle"),
   ];
+  const editToolButtons = [
+    createToolButton("fill", PaintBucket, "Fill"),
+    createToolButton("eyedropper", Pipette, "Pick color"),
+    createToolButton("rotate", RotateCw, "Rotate"),
+    createToolButton("scale", Scaling, "Scale"),
+  ];
+  const toolButtons = [...primitiveToolButtons, ...editToolButtons];
 
-  const undoButton = createSpriteButton("↶", "Undo");
-  const redoButton = createSpriteButton("↷", "Redo");
-  const clearButton = createSpriteButton("⌧", "Clear sprite");
+  const undoButton = createSpriteButton(Undo2, "Undo");
+  const redoButton = createSpriteButton(Redo2, "Redo");
+  const clearButton = createSpriteButton(Trash2, "Clear sprite");
   const clearDialog = createClearDialog();
   const clearCancelButton = clearDialog.querySelector<HTMLButtonElement>("[data-clear-cancel]");
   const clearConfirmButton = clearDialog.querySelector<HTMLButtonElement>("[data-clear-confirm]");
@@ -109,21 +137,33 @@ function createSpriteMount(paletteActions: SpritePaletteActions): {
     createField("Canvas height", canvasHeightSelect),
   );
 
-  const toolSection = createElement("section", "sprite-tool-section");
-  const toolGrid = createElement("div", "sprite-tool-grid");
-  toolGrid.append(...toolButtons);
-  toolSection.append(createTextElement("h2", "Create"), toolGrid);
+  const primitiveToolSection = createElement("section", "sprite-tool-section");
+  const primitiveToolGrid = createElement("div", "sprite-tool-grid");
+  primitiveToolGrid.append(...primitiveToolButtons);
+  primitiveToolSection.append(createTextElement("h2", "Primitives"), primitiveToolGrid);
+
+  const editToolSection = createElement("section", "sprite-tool-section");
+  const editToolGrid = createElement("div", "sprite-tool-grid");
+  editToolGrid.append(...editToolButtons);
+  editToolSection.append(createTextElement("h2", "Tools"), editToolGrid);
 
   const selectionSummary = createTextElement("h2", "Selected: none", "sprite-selection-summary");
-  const flipHorizontalButton = createSpriteButton("⇋", "Flip horizontal");
-  const flipVerticalButton = createSpriteButton("⇅", "Flip vertical");
-  const sendToBackButton = createSpriteButton("⇤", "Send to back");
-  const sendBackwardButton = createSpriteButton("←", "Send backward");
-  const bringForwardButton = createSpriteButton("→", "Bring forward");
-  const bringToFrontButton = createSpriteButton("⇥", "Bring to front");
-  const transformSection = createElement("section", "sprite-tool-section");
+  const flipHorizontalButton = createSpriteButton(FlipHorizontal, "Flip horizontal");
+  const flipVerticalButton = createSpriteButton(FlipVertical, "Flip vertical");
+  const sendToBackButton = createSpriteButton(SendToBack, "Send to back");
+  const sendBackwardButton = createSpriteButton(StepBack, "Send backward");
+  const bringForwardButton = createSpriteButton(StepForward, "Bring forward");
+  const bringToFrontButton = createSpriteButton(BringToFront, "Bring to front");
+  const transformSection = createElement("section", "sprite-tool-section sprite-transform-section");
   const transformGrid = createElement("div", "sprite-action-grid");
-  transformGrid.append(flipHorizontalButton, flipVerticalButton, sendToBackButton, sendBackwardButton, bringForwardButton, bringToFrontButton);
+  transformGrid.append(
+    flipHorizontalButton,
+    flipVerticalButton,
+    sendToBackButton,
+    bringToFrontButton,
+    sendBackwardButton,
+    bringForwardButton,
+  );
   transformSection.append(selectionSummary, transformGrid);
 
   const historySection = createElement("section", "sprite-tool-section");
@@ -131,18 +171,18 @@ function createSpriteMount(paletteActions: SpritePaletteActions): {
   historyRow.append(undoButton, redoButton, clearButton);
   historySection.append(createTextElement("h2", "Actions"), historyRow);
 
-  assetPanel.append(toolSection, historySection, clearDialog, colorInput, colorHexInput);
+  assetPanel.append(primitiveToolSection, editToolSection, transformSection, historySection, clearDialog, colorInput, colorHexInput);
 
   const canvasWrap = createElement("div", "sprite-canvas-wrap");
   const canvas = createElement("canvas", "sprite-canvas");
   canvasWrap.append(canvas);
   editorArea.append(canvasWrap);
 
-  const groupButton = createSpriteButton("⊞", "Group selected primitives", "sprite-icon-button");
-  const ungroupButton = createSpriteButton("⊟", "Ungroup selected group", "sprite-icon-button");
-  const copyPrimitiveButton = createSpriteButton("⧉", "Copy selected primitives", "sprite-icon-button");
-  const pastePrimitiveButton = createSpriteButton("▣", "Paste primitives", "sprite-icon-button");
-  const deletePrimitiveButton = createSpriteButton("×", "Delete selected primitives", "sprite-icon-button danger");
+  const groupButton = createSpriteButton(Group, "Group selected primitives", "sprite-icon-button");
+  const ungroupButton = createSpriteButton(Ungroup, "Ungroup selected group", "sprite-icon-button");
+  const copyPrimitiveButton = createSpriteButton(Copy, "Copy selected primitives", "sprite-icon-button");
+  const pastePrimitiveButton = createSpriteButton(ClipboardPaste, "Paste primitives", "sprite-icon-button");
+  const deletePrimitiveButton = createSpriteButton(Trash2, "Delete selected primitives", "sprite-icon-button danger");
 
   const tabBar = createElement("div", "sprite-inspector-tabs");
   const primitivesTab = createSpriteTabButton("Primitives", "primitives");
@@ -159,12 +199,18 @@ function createSpriteMount(paletteActions: SpritePaletteActions): {
   const primitiveList = createElement("ol", "primitive-list");
   primitiveListSection.append(createTextElement("h2", "Primitives"), primitiveList);
 
-  const primitivesPanel = createElement("div", `sprite-inspector-tab-panel${activeSpriteInspectorTab === "primitives" ? " is-active" : ""}`);
+  const primitivesPanel = createElement(
+    "div",
+    `sprite-inspector-tab-panel${activeSpriteInspectorTab === "primitives" ? " is-active" : ""}`,
+  );
   primitivesPanel.append(primitiveActionsSection, primitiveListSection);
   const palettePanel = createElement("div", `sprite-inspector-tab-panel${activeSpriteInspectorTab === "palette" ? " is-active" : ""}`);
   palettePanel.append(renderPaletteSection(getSpritePalette(), paletteActions));
-  const propertiesPanel = createElement("div", `sprite-inspector-tab-panel${activeSpriteInspectorTab === "properties" ? " is-active" : ""}`);
-  propertiesPanel.append(spriteFields, transformSection);
+  const propertiesPanel = createElement(
+    "div",
+    `sprite-inspector-tab-panel${activeSpriteInspectorTab === "properties" ? " is-active" : ""}`,
+  );
+  propertiesPanel.append(spriteFields);
   inspectorPanel.append(tabBar, primitivesPanel, palettePanel, propertiesPanel);
 
   const statusElement = createTextElement("strong", "player - 64x64 - 0 primitives");
@@ -243,18 +289,24 @@ export function selectSpritePaletteColor(rgba: string): void {
   spriteEditorController.setPaletteColor(rgba);
 }
 
-function createToolButton(kind: string, label: string, title: string): HTMLButtonElement {
-  const button = createSpriteButton(label, title, "sprite-icon-button tool-button");
+function createToolButton(kind: string, icon: AppIcon, title: string): HTMLButtonElement {
+  const button = createSpriteButton(icon, title, "sprite-icon-button tool-button");
   button.dataset.kind = kind;
 
   return button;
 }
 
-function createSpriteButton(label: string, title: string, className = "sprite-button"): HTMLButtonElement {
-  const button = createTextElement("button", label, className);
+function createSpriteButton(content: AppIcon | string, title: string, className = "sprite-button"): HTMLButtonElement {
+  const button = createElement("button", className);
   button.type = "button";
   button.title = title;
   button.setAttribute("aria-label", title);
+
+  if (typeof content === "string") {
+    button.textContent = content;
+  } else {
+    button.append(createIcon(content));
+  }
 
   return button;
 }
@@ -281,7 +333,11 @@ function createCanvasSizeSelect(field: string): HTMLSelectElement {
 }
 
 function createSpriteTabButton(label: string, tab: "primitives" | "palette" | "properties"): HTMLButtonElement {
-  const button = createSpriteButton(label, `Show ${label.toLowerCase()}`, `sprite-tab-button${activeSpriteInspectorTab === tab ? " is-active" : ""}`);
+  const button = createSpriteButton(
+    label,
+    `Show ${label.toLowerCase()}`,
+    `sprite-tab-button${activeSpriteInspectorTab === tab ? " is-active" : ""}`,
+  );
   button.addEventListener("click", () => {
     activeSpriteInspectorTab = tab;
     document.querySelectorAll<HTMLElement>(".sprite-tab-button").forEach((candidate) => {
@@ -301,7 +357,7 @@ function createSpriteTabButton(label: string, tab: "primitives" | "palette" | "p
 function renderPaletteSection(palette: readonly SpritePaletteColor[], actions: SpritePaletteActions): HTMLElement {
   const paletteSection = createElement("div", "sprite-palette");
   const header = createElement("div", "sprite-palette-header");
-  const addButton = createSpriteButton("+", "Add palette color", "sprite-icon-button");
+  const addButton = createSpriteButton(Plus, "Add palette color", "sprite-icon-button");
   addButton.disabled = palette.length >= 256;
   addButton.addEventListener("click", actions.addColor);
   header.append(createTextElement("h3", "Palette"), addButton);
@@ -312,35 +368,30 @@ function renderPaletteSection(palette: readonly SpritePaletteColor[], actions: S
   palette.forEach((color, index) => {
     const row = createElement("div", "sprite-palette-row");
     const swatch = createSpriteButton(String(index), `Use ${color.name}`, "sprite-palette-swatch");
-    const editColorButton = createSpriteButton("◈", "Edit palette color", "sprite-icon-button");
+    const editColorButton = createSpriteButton(Palette, "Edit palette color", "sprite-icon-button");
     const colorPicker = createSpriteInput("color");
     const nameInput = createSpriteInput("text");
     const rgbaInput = createSpriteInput("text");
-    const deleteButton = createSpriteButton("×", "Delete palette color", "sprite-icon-button danger");
+    const deleteButton = createSpriteButton(Trash2, "Delete palette color", "sprite-icon-button danger");
 
     swatch.style.backgroundColor = rgbaToCss(color.rgba);
     colorPicker.value = rgbHexFromRgba(color.rgba);
-    colorPicker.disabled = index === 0;
     colorPicker.className = "sprite-palette-color-picker";
-    editColorButton.disabled = index === 0;
+    rgbaInput.className = "sprite-palette-rgba-input";
     swatch.addEventListener("click", () => actions.selectColor(index));
     editColorButton.addEventListener("click", () => {
-      if (index !== 0) {
-        colorPicker.click();
-      }
+      colorPicker.click();
     });
     nameInput.value = color.name;
-    nameInput.disabled = index === 0;
     nameInput.addEventListener("change", () => actions.renameColor(index, nameInput.value));
-    rgbaInput.value = color.rgba;
-    rgbaInput.disabled = index === 0;
+    rgbaInput.value = color.rgba.toUpperCase();
     rgbaInput.addEventListener("change", () => actions.updateColor(index, rgbaInput.value));
     colorPicker.addEventListener("change", () => {
-      const nextRgba = `${colorPicker.value}${alphaHexFromRgba(rgbaInput.value)}`;
+      const nextRgba = `${colorPicker.value}${alphaHexFromRgba(rgbaInput.value)}`.toUpperCase();
       rgbaInput.value = nextRgba;
       actions.updateColor(index, nextRgba);
     });
-    deleteButton.disabled = index === 0 || isSpritePaletteColorUsed(index);
+    deleteButton.disabled = isSpritePaletteColorUsed(index);
     deleteButton.addEventListener("click", () => actions.deleteColor(index));
 
     row.append(swatch, nameInput, rgbaInput, editColorButton, deleteButton, colorPicker);
@@ -380,7 +431,7 @@ function createClearDialog(): HTMLDialogElement {
 
   const actions = createElement("div", "sprite-clear-dialog-actions");
   const cancelButton = createSpriteButton("Cancel", "Cancel clear");
-  const confirmButton = createSpriteButton("Clear", "Clear sprite", "sprite-button danger");
+  const confirmButton = createSpriteButton(Trash2, "Clear sprite", "sprite-button danger");
   cancelButton.dataset.clearCancel = "true";
   confirmButton.dataset.clearConfirm = "true";
   actions.append(cancelButton, confirmButton);

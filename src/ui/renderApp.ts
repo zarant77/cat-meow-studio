@@ -1,8 +1,7 @@
 import type { EditorState } from "../state/editorState.js";
 import { getAssetExplorerItems } from "../state/assetExplorerState.js";
 import type { MusicEditorState } from "../state/musicEditorState.js";
-import type { CurrentUser } from "../storage/backendProjectPersistence.js";
-import type { AppActions, AppMode, AppStatus, ModeSurface, MusicRenderActions, ProjectSummary, RenderActions } from "./appTypes.js";
+import type { AppActions, AppMode, AppStatus, ModeSurface, MusicRenderActions, RenderActions } from "./appTypes.js";
 import { renderMusicPreview, renderMusicWorkspaceSurface } from "./renderMusicEditor.js";
 import { renderAppShell } from "./renderShell.js";
 import { renderSfxSurface } from "./renderSfxEditor.js";
@@ -23,9 +22,6 @@ export function renderApp(
   musicState: MusicEditorState,
   status: AppStatus | null,
   actions: AppActions,
-  currentUser: CurrentUser,
-  projects: readonly ProjectSummary[],
-  activeBackendProjectId: string | null,
 ): void {
   const focusSnapshot = captureFocus(root);
   const surface = renderModeSurface(mode, state, musicState, actions);
@@ -41,9 +37,6 @@ export function renderApp(
       inspectorPanel: surface.inspectorPanel,
       previewStatusArea: surface.previewStatusArea,
       shellActions: actions.shell,
-      currentUser,
-      projects,
-      activeBackendProjectId,
     }),
   );
 

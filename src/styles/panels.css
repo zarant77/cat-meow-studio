@@ -465,6 +465,11 @@ input.is-invalid {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.65);
 }
 
+.sprite-palette-rgba-input,
+input[data-field="spriteColor"] {
+  text-transform: uppercase;
+}
+
 .sprite-palette-color-picker {
   position: fixed;
   width: 1px;
@@ -661,6 +666,8 @@ input.is-invalid {
 }
 
 .primitive-list-toggle {
+  display: inline-grid;
+  place-items: center;
   width: 16px;
   min-height: 18px;
   padding: 0;
@@ -684,7 +691,8 @@ input.is-invalid {
 }
 
 .primitive-list-group-marker {
-  font-size: 0.82rem;
+  width: 14px;
+  height: 14px;
 }
 
 .primitive-list-shape-marker {
@@ -721,6 +729,8 @@ input.is-invalid {
 
 .primitive-list-action-button,
 .primitive-list-rename-button {
+  display: inline-grid;
+  place-items: center;
   width: 20px;
   min-height: 20px;
   padding: 0;
@@ -729,6 +739,14 @@ input.is-invalid {
   color: currentColor;
   font-size: 0.7rem;
   line-height: 1;
+}
+
+.primitive-list-toggle .lucide-icon,
+.primitive-list-kind .lucide-icon,
+.primitive-list-action-button .lucide-icon,
+.primitive-list-rename-button .lucide-icon {
+  width: 13px;
+  height: 13px;
 }
 
 .primitive-list-rename-button,

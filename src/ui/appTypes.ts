@@ -1,7 +1,6 @@
 import type { SoundCommandPatch } from "../state/editorState.js";
 import type { AssetId, AssetKind } from "../model/assets.js";
 import type { MusicInstrumentPatch, MusicNotePatch, MusicProjectPatch } from "../state/musicEditorState.js";
-import type { ProjectSummary } from "../storage/backendProjectPersistence.js";
 
 export type AppMode = "music" | "sfx" | "sprites";
 
@@ -15,10 +14,9 @@ export interface RenderActions {
   canRedo: () => boolean;
   createNewProject: () => void;
   clearSavedProject: () => void;
-  exportSoundJson: () => void;
-  importSoundJson: () => void;
-  exportSoundC: () => void;
-  exportAllC: () => void;
+  exportCurrentJson: () => void;
+  importJson: () => void;
+  exportAllJson: () => void;
   createFromPreset: (presetId: string) => void;
   resetToPreset: () => void;
   selectCommand: (commandId: string) => void;
@@ -29,8 +27,6 @@ export interface RenderActions {
   moveCommand: (commandId: string, direction: -1 | 1) => void;
   updateSelectedCommand: (patch: SoundCommandPatch) => void;
   updateProjectId: (projectId: string) => void;
-  openAdmin: () => void;
-  selectBackendProject: (storageProjectId: string) => void;
 }
 
 export interface MusicRenderActions {
@@ -79,5 +75,3 @@ export interface ModeSurface {
   inspectorPanel: HTMLElement;
   previewStatusArea: HTMLElement;
 }
-
-export type { ProjectSummary };

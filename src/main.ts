@@ -1,17 +1,10 @@
 import { AudioPreview } from "./audio/audioPreview.js";
 import { generateMusicSamples } from "./audio/musicGenerator.js";
-import {
-  exportProjectC,
-  exportProjectMusicC,
-  exportProjectSfxC,
-  exportProjectSpritesC,
-  getSpriteExportErrors,
-  type GeneratedCFile,
-} from "./export/exportProjectC.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
+import { exportSpriteJson } from "./export/exportSpriteJson.js";
 import { exportSoundJson } from "./export/exportSoundJson.js";
-import { getSoundExportReadiness } from "./export/soundReadiness.js";
 import { importMusicJson } from "./import/importMusicJson.js";
+import { importSpriteJson } from "./import/importSpriteJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
 import type { AssetId, AssetKind, ProjectAsset } from "./model/assets.js";
 import { createMusicProjectAsset, createSfxProjectAsset } from "./model/assetAdapters.js";
@@ -56,27 +49,8 @@ import {
   updateSelectedMusicNote,
 } from "./state/musicEditorState.js";
 import { clearAutosavedProject } from "./storage/localAutosave.js";
-import {
-  addAdminProjectUser,
-  createAdminProject,
-  createAdminUser,
-  getCurrentUser,
-  listProjects,
-  loadAdminData,
-  loadBackendProjectState,
-  login,
-  removeAdminProjectUser,
-  renameAdminProject,
-  saveBackendProjectState,
-  type AdminProjectSummary,
-  type AdminUserSummary,
-  type CurrentUser,
-  type ProjectSummary,
-} from "./storage/backendProjectPersistence.js";
-import { clearLocalProjectState } from "./storage/localProjectPersistence.js";
+import { clearLocalProjectState, loadLocalProjectState, saveLocalProjectState } from "./storage/localProjectPersistence.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
-import { renderAdmin } from "./ui/renderAdmin.js";
-import { renderLogin } from "./ui/renderLogin.js";
 import {
   canRedoSpriteEditor,
   canUndoSpriteEditor,
@@ -123,12 +97,6 @@ const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = "sfx";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
-let currentUser: CurrentUser | null = null;
-let activeView: "studio" | "admin" = "studio";
-let activeBackendProjectId: string | null = null;
-let backendProjects: ProjectSummary[] = [];
-let adminUsers: AdminUserSummary[] = [];
-let adminProjects: AdminProjectSummary[] = [];
 let projectStateSubscription: (() => void) | null = null;
 let saveProjectTimeoutId: number | null = null;
 
@@ -230,104 +198,25 @@ const actions: RenderActions = {
 
     clearAutosavedProject();
     clearLocalProjectState();
-    void persistBackendProject();
-    showStatus("Local migration fallback cleared.", "success");
+    showStatus("Local autosave cleared.", "success");
   },
-  exportSoundJson() {
-    if (activeMode === "music") {
-      const project = getCurrentMusicProject();
-      const source = exportMusicJson(project);
-
-      if (source === null) {
-        showStatus("Enter a valid music id before exporting JSON.", "error");
-        return;
-      }
-
-      downloadFile(`${project.id}.music.json`, source, "application/json;charset=utf-8");
-      showStatus(`Exported ${project.id}.music.json`, "success");
-      return;
-    }
-
-    if (activeMode === "sprites") {
-      showStatus("Sprite mode is a placeholder for now.", "error");
-      return;
-    }
-
-    const project = getCurrentProject();
-    const source = exportSoundJson(project);
-
-    if (source === null) {
-      showStatus("Enter a valid sound id before exporting JSON.", "error");
-      return;
-    }
-
-    downloadFile(`${project.id}.sound.json`, source, "application/json;charset=utf-8");
-    showStatus(`Exported ${project.id}.sound.json`, "success");
+  exportCurrentJson() {
+    exportJsonForMode(activeMode);
   },
-  importSoundJson() {
-    if (activeMode === "sprites") {
-      showStatus("Sprite mode import is not implemented yet.", "error");
-      return;
-    }
-
+  importJson() {
     jsonFileInput.click();
   },
-  exportSoundC() {
-    syncActiveAsset();
+  exportAllJson() {
+    syncCurrentAssets();
+    let exportedCount = 0;
 
-    if (activeMode === "music") {
-      const files = exportProjectMusicC(getProject());
-      downloadGeneratedCFiles(files, "No music assets to export.", "Exported music C sources.");
-      return;
-    }
-
-    if (activeMode === "sprites") {
-      const spriteErrors = getSpriteExportErrors(getProject());
-
-      if (spriteErrors.length > 0) {
-        showStatus(`Fix sprite export errors first: ${spriteErrors.join(", ")}`, "error");
-        return;
+    for (const asset of getProject().assets) {
+      if (downloadAssetJson(asset)) {
+        exportedCount += 1;
       }
-
-      const file = exportProjectSpritesC(getProject());
-
-      if (file === null) {
-        showStatus("No sprite assets to export.", "error");
-        return;
-      }
-
-      downloadGeneratedCFiles([file], "No sprite assets to export.", `Exported ${file.fileName}`);
-      return;
     }
 
-    const sfxError = getSfxExportError();
-
-    if (sfxError !== null) {
-      showStatus(sfxError, "error");
-      return;
-    }
-
-    const files = exportProjectSfxC(getProject());
-    downloadGeneratedCFiles(files, "No SFX assets to export.", "Exported SFX C sources.");
-  },
-  exportAllC() {
-    syncActiveAsset();
-
-    const sfxError = getSfxExportError();
-
-    if (sfxError !== null) {
-      showStatus(sfxError, "error");
-      return;
-    }
-
-    const spriteErrors = getSpriteExportErrors(getProject());
-
-    if (spriteErrors.length > 0) {
-      showStatus(`Fix sprite export errors first: ${spriteErrors.join(", ")}`, "error");
-      return;
-    }
-
-    downloadGeneratedCFiles(exportProjectC(getProject()), "No project assets to export.", "Exported little_one_assets.c.");
+    showStatus(exportedCount === 0 ? "No JSON assets to export." : `Exported ${exportedCount} JSON assets.`, exportedCount === 0 ? "error" : "success");
   },
   createFromPreset(presetId) {
     createProjectFromPreset(presetId);
@@ -376,12 +265,6 @@ const actions: RenderActions = {
   updateProjectId(projectId) {
     updateProjectId(projectId);
     renderAfterEditorChange();
-  },
-  openAdmin() {
-    void openAdminView();
-  },
-  selectBackendProject(storageProjectId) {
-    void switchBackendProject(storageProjectId);
   },
 };
 
@@ -459,10 +342,12 @@ const appActions: AppActions = {
         selectSpritePaletteColor(color.rgba);
       }
 
+      syncSpriteEditorFromSelectedAsset();
       render();
     },
     renameColor(index, name) {
       renameSpritePaletteColor(index, name);
+      syncSpriteEditorFromSelectedAsset();
       render();
     },
     updateColor(index, rgba) {
@@ -488,6 +373,7 @@ const appActions: AppActions = {
         return;
       }
 
+      syncSpriteEditorFromSelectedAsset();
       render();
     },
   },
@@ -498,40 +384,6 @@ function render(): void {
     throw new Error("Cat Meow root element was not found");
   }
 
-  if (currentUser === null) {
-    renderLogin(app, status, {
-      login(email, password) {
-        void handleLogin(email, password);
-      },
-    });
-    return;
-  }
-
-  if (activeView === "admin") {
-    renderAdmin(app, status, adminUsers, adminProjects, {
-      back() {
-        activeView = "studio";
-        render();
-      },
-      createUser(email, password, role) {
-        void handleCreateAdminUser(email, password, role);
-      },
-      createProject(name, projectId, ownerUserId) {
-        void handleCreateAdminProject(name, projectId, ownerUserId);
-      },
-      renameProject(storageProjectId, name) {
-        void handleRenameAdminProject(storageProjectId, name);
-      },
-      addProjectUser(storageProjectId, userId) {
-        void handleAddProjectUser(storageProjectId, userId);
-      },
-      removeProjectUser(storageProjectId, userId) {
-        void handleRemoveProjectUser(storageProjectId, userId);
-      },
-    });
-    return;
-  }
-
   renderApp(
     app,
     activeMode,
@@ -539,9 +391,6 @@ function render(): void {
     getMusicEditorState(),
     status,
     appActions,
-    currentUser,
-    backendProjects,
-    activeBackendProjectId,
   );
 }
 
@@ -659,7 +508,7 @@ function switchMode(mode: AppMode): void {
   }
 
   activeMode = mode;
-  void persistBackendProject();
+  scheduleLocalProjectSave();
   preview.stop();
   render();
 }
@@ -727,8 +576,14 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
 
   try {
     const text = await readTextFile(file);
+    const importKind = detectJsonAssetKind(text);
 
-    if (activeMode === "music") {
+    if (importKind === null) {
+      showStatus('JSON asset must have type "sprite", "music", or "sfx".', "error");
+      return;
+    }
+
+    if (importKind === "music") {
       const musicResult = importMusicJson(text);
 
       if (!musicResult.ok) {
@@ -739,13 +594,23 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       replaceCurrentMusicProject(musicResult.project);
       saveCurrentMusicProject();
       preview.stop();
+      switchMode("music");
       showStatus(`Imported ${musicResult.project.id}.music.json`, "success");
       render();
       return;
     }
 
-    if (activeMode === "sprites") {
-      showStatus("Sprite mode import is not implemented yet.", "error");
+    if (importKind === "sprite") {
+      const spriteResult = importSpriteJson(text);
+
+      if (!spriteResult.ok) {
+        showStatus(spriteResult.error, "error");
+        return;
+      }
+
+      replaceSpriteEditorAsset(spriteResult.sprite);
+      switchMode("sprites");
+      showStatus(`Imported ${spriteResult.sprite.spriteId}.sprite.json`, "success");
       return;
     }
 
@@ -758,11 +623,40 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
 
     replaceCurrentProject(soundResult.project);
     saveCurrentProject();
-    showStatus(`Imported ${soundResult.project.id}.sound.json`, "success");
+    switchMode("sfx");
+    showStatus(`Imported ${soundResult.project.id}.sfx.json`, "success");
     render();
   } catch {
     showStatus(getImportErrorMessage(), "error");
   }
+}
+
+function detectJsonAssetKind(text: string): AssetKind | null {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+
+  if (!isRecord(parsed)) {
+    return null;
+  }
+
+  if (parsed.type === "sprite") {
+    return "sprite";
+  }
+
+  if (parsed.type === "music") {
+    return "music";
+  }
+
+  if (parsed.type === "sfx" || parsed.type === "sound") {
+    return "sfx";
+  }
+
+  return null;
 }
 
 function renderAfterEditorChange(): void {
@@ -811,25 +705,6 @@ function syncCurrentMusicAsset(): void {
   upsertCurrentProjectAsset(createMusicProjectAsset(getCurrentMusicProject()));
 }
 
-async function initializeBackendProject(): Promise<void> {
-  backendProjects = await listProjects();
-  const savedProject = await loadBackendProjectState(activeBackendProjectId);
-  activeBackendProjectId = savedProject.storageProjectId;
-  backendProjects = await listProjects();
-  replaceProjectState(savedProject.project, savedProject.selectedAssetIds, { emit: false });
-  activeMode = savedProject.activeMode;
-
-  const selectedAsset = getSelectedProjectAssetForMode(savedProject.activeMode);
-
-  if (selectedAsset !== null) {
-    selectProjectAsset(selectedAsset.kind, selectedAsset.id);
-    applyProjectAssetToEditor(selectedAsset);
-    return;
-  }
-
-  syncCurrentAssets();
-}
-
 function getSelectedProjectAssetForMode(mode: AppMode): ProjectAsset | null {
   const kind = modeToAssetKind(mode);
   const selectedAssetId = getSelectedProjectAssetId(kind);
@@ -859,6 +734,14 @@ function applyProjectAssetToEditor(asset: ProjectAsset): void {
   replaceCurrentProject(asset.sfx, { recordHistory: false });
 }
 
+function syncSpriteEditorFromSelectedAsset(): void {
+  const selectedAsset = getSelectedProjectAssetForMode("sprites");
+
+  if (selectedAsset?.kind === "sprite") {
+    replaceSpriteEditorAsset(selectedAsset.sprite);
+  }
+}
+
 function modeToAssetKind(mode: AppMode): AssetKind {
   if (mode === "sprites") {
     return "sprite";
@@ -867,190 +750,110 @@ function modeToAssetKind(mode: AppMode): AssetKind {
   return mode;
 }
 
-async function persistBackendProject(): Promise<void> {
-  if (currentUser === null) {
-    return;
-  }
-
-  await saveBackendProjectState(
-    {
-      project: getProject(),
-      selectedAssetIds: getSelectedAssetIds(),
-      activeMode,
-    },
-    activeBackendProjectId,
-  );
+function persistLocalProject(): void {
+  saveLocalProjectState({
+    project: getProject(),
+    selectedAssetIds: getSelectedAssetIds(),
+    activeMode,
+  });
 }
 
-function scheduleBackendProjectSave(): void {
+function scheduleLocalProjectSave(): void {
   if (saveProjectTimeoutId !== null) {
     window.clearTimeout(saveProjectTimeoutId);
   }
 
   saveProjectTimeoutId = window.setTimeout(() => {
     saveProjectTimeoutId = null;
-    void persistBackendProject().catch(() => {
-      showStatus("Could not save project to the backend.", "error");
-    });
+    persistLocalProject();
   }, 250);
 }
 
-async function boot(): Promise<void> {
-  try {
-    currentUser = await getCurrentUser();
+function boot(): void {
+  const savedProject = loadLocalProjectState();
 
-    if (currentUser === null) {
-      render();
-      return;
+  if (savedProject !== null) {
+    replaceProjectState(savedProject.project, savedProject.selectedAssetIds, { emit: false });
+    activeMode = savedProject.activeMode;
+
+    const selectedAsset = getSelectedProjectAssetForMode(savedProject.activeMode);
+
+    if (selectedAsset !== null) {
+      selectProjectAsset(selectedAsset.kind, selectedAsset.id);
+      applyProjectAssetToEditor(selectedAsset);
     }
-
-    await initializeBackendProject();
-
-    if (projectStateSubscription === null) {
-      projectStateSubscription = subscribeProjectState(scheduleBackendProjectSave);
-    }
-
-    await persistBackendProject();
-    render();
-  } catch {
-    currentUser = null;
-    showStatus("Login required.", "error");
+  } else {
+    syncCurrentAssets();
   }
+
+  if (projectStateSubscription === null) {
+    projectStateSubscription = subscribeProjectState(scheduleLocalProjectSave);
+  }
+
+  persistLocalProject();
+  render();
 }
 
-async function handleLogin(email: string, password: string): Promise<void> {
-  try {
-    currentUser = await login(email, password);
-    status = null;
-    await initializeBackendProject();
-
-    if (projectStateSubscription === null) {
-      projectStateSubscription = subscribeProjectState(scheduleBackendProjectSave);
-    }
-
-    await persistBackendProject();
-    render();
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Login failed.", "error");
-  }
+function exportJsonForMode(mode: AppMode): void {
+  exportJsonForKind(modeToAssetKind(mode));
 }
 
-async function switchBackendProject(storageProjectId: string): Promise<void> {
-  try {
-    await persistBackendProject();
-    activeBackendProjectId = storageProjectId;
-    await initializeBackendProject();
-    preview.stop();
-    render();
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not switch project.", "error");
-  }
-}
+function exportJsonForKind(kind: AssetKind): void {
+  syncActiveAsset();
+  const asset = getSelectedProjectAssetForMode(kindToMode(kind));
 
-async function openAdminView(): Promise<void> {
-  if (currentUser?.role !== "admin") {
-    showStatus("Admin role required.", "error");
+  if (asset === null) {
+    showStatus(`No ${kind} asset to export.`, "error");
     return;
   }
 
-  try {
-    const data = await loadAdminData();
-    adminUsers = data.users;
-    adminProjects = data.projects;
-    activeView = "admin";
-    render();
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not load admin page.", "error");
+  if (!downloadAssetJson(asset)) {
+    showStatus(`Could not export ${asset.name}.`, "error");
   }
 }
 
-async function refreshAdminData(): Promise<void> {
-  const data = await loadAdminData();
-  adminUsers = data.users;
-  adminProjects = data.projects;
-  backendProjects = await listProjects();
-}
+function downloadAssetJson(asset: ProjectAsset): boolean {
+  if (asset.kind === "sprite") {
+    const source = exportSpriteJson(asset.sprite);
 
-async function handleCreateAdminUser(email: string, password: string, role: "admin" | "user"): Promise<void> {
-  try {
-    await createAdminUser(email, password, role);
-    await refreshAdminData();
-    showStatus("User created.", "success");
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not create user.", "error");
-  }
-}
-
-async function handleCreateAdminProject(name: string, projectId: string, ownerUserId: string): Promise<void> {
-  try {
-    await createAdminProject(name, projectId, ownerUserId);
-    await refreshAdminData();
-    showStatus("Project created.", "success");
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not create project.", "error");
-  }
-}
-
-async function handleRenameAdminProject(storageProjectId: string, name: string): Promise<void> {
-  try {
-    await renameAdminProject(storageProjectId, name);
-    await refreshAdminData();
-
-    if (activeBackendProjectId === storageProjectId) {
-      await initializeBackendProject();
+    if (source === null) {
+      return false;
     }
 
-    showStatus("Project renamed.", "success");
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not rename project.", "error");
+    downloadFile(`${asset.sprite.spriteId}.sprite.json`, source, "application/json;charset=utf-8");
+    showStatus(`Exported ${asset.sprite.spriteId}.sprite.json`, "success");
+    return true;
   }
-}
 
-async function handleAddProjectUser(storageProjectId: string, userId: string): Promise<void> {
-  try {
-    await addAdminProjectUser(storageProjectId, userId);
-    await refreshAdminData();
-    showStatus("User added to project.", "success");
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not add user to project.", "error");
-  }
-}
+  if (asset.kind === "music") {
+    const source = exportMusicJson(asset.music);
 
-async function handleRemoveProjectUser(storageProjectId: string, userId: string): Promise<void> {
-  try {
-    await removeAdminProjectUser(storageProjectId, userId);
-    await refreshAdminData();
-    showStatus("User removed from project.", "success");
-  } catch (error) {
-    showStatus(error instanceof Error ? error.message : "Could not remove user from project.", "error");
-  }
-}
-
-function getSfxExportError(): string | null {
-  const sfxAssets = getProject().assets.filter((asset) => asset.kind === "sfx");
-
-  for (const asset of sfxAssets) {
-    const readiness = getSoundExportReadiness(asset.sfx);
-
-    if (readiness.status === "error") {
-      return `Fix ${asset.name} export errors first: ${readiness.errors.join(", ")}.`;
+    if (source === null) {
+      return false;
     }
+
+    downloadFile(`${asset.music.id}.music.json`, source, "application/json;charset=utf-8");
+    showStatus(`Exported ${asset.music.id}.music.json`, "success");
+    return true;
   }
 
-  return null;
+  const source = exportSoundJson(asset.sfx);
+
+  if (source === null) {
+    return false;
+  }
+
+  downloadFile(`${asset.sfx.id}.sfx.json`, source, "application/json;charset=utf-8");
+  showStatus(`Exported ${asset.sfx.id}.sfx.json`, "success");
+  return true;
 }
 
-function downloadGeneratedCFiles(files: GeneratedCFile[], emptyMessage: string, successMessage: string): void {
-  if (files.length === 0) {
-    showStatus(emptyMessage, "error");
-    return;
+function kindToMode(kind: AssetKind): AppMode {
+  if (kind === "sprite") {
+    return "sprites";
   }
 
-  for (const file of files) {
-    downloadFile(file.fileName, file.source, "text/x-csrc;charset=utf-8");
-  }
-
-  showStatus(successMessage, "success");
+  return kind;
 }
 
 function showStatus(message: string, tone: AppStatus["tone"]): void {
@@ -1108,19 +911,19 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
 
   if (isCommandShortcut && key === "s") {
     event.preventDefault();
-    actions.exportAllC();
+    actions.exportCurrentJson();
     return;
   }
 
   if (isCommandShortcut && key === "e") {
     event.preventDefault();
-    actions.exportAllC();
+    actions.exportCurrentJson();
     return;
   }
 
   if (isCommandShortcut && key === "o") {
     event.preventDefault();
-    actions.importSoundJson();
+    actions.importJson();
     return;
   }
 
@@ -1162,6 +965,10 @@ function getImportErrorMessage(): string {
   return "The sound file could not be imported.";
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isTextEntryTarget(target: EventTarget | null): boolean {
   return (
     target instanceof HTMLInputElement ||
@@ -1173,4 +980,4 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 
 document.addEventListener("keydown", handleKeyboardShortcut);
 
-void boot();
+boot();

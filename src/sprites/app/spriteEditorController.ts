@@ -63,6 +63,7 @@ const canvasSizeValues = [32, 64, 96, 128, 192, 256, 512, 768, 1024] as const;
 
 export class SpriteEditorController {
   private readonly state: AppState = createInitialState();
+  private palette = createDefaultSpritePalette();
   private nodeClipboard: SceneNode[] = [];
   private renderPrimitiveList = (): void => {};
   private canvasView: CanvasView | null = null;
@@ -108,6 +109,7 @@ export class SpriteEditorController {
       height: this.state.spriteHeight,
       pivotX: this.state.pivotX,
       pivotY: this.state.pivotY,
+      palette: this.palette.map((color) => ({ ...color })),
       nodes: cloneNodes(this.state.nodes),
     };
   }
@@ -124,6 +126,7 @@ export class SpriteEditorController {
     this.state.spriteHeight = height;
     this.state.pivotX = Math.floor(width / 2);
     this.state.pivotY = height;
+    this.palette = sprite.palette.map((color) => ({ ...color }));
     this.state.nodes = cloneNodes(sprite.nodes);
     this.state.undoStack = [];
     this.state.redoStack = [];
@@ -142,6 +145,7 @@ export class SpriteEditorController {
       height: 64,
       pivotX: 32,
       pivotY: 64,
+      palette: createDefaultSpritePalette(),
       nodes: [],
     });
   }
@@ -1096,6 +1100,13 @@ export class SpriteEditorController {
 
     return node.children.some((child) => child.locked || this.hasLockedDescendant(child));
   }
+}
+
+function createDefaultSpritePalette(): SpriteAssetData["palette"] {
+  return [
+    { name: "Ink", rgba: "#111111ff" },
+    { name: "White", rgba: "#ffffffff" },
+  ];
 }
 
 function bindCommitInput(input: HTMLInputElement, commit: () => void): void {

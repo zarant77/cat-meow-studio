@@ -1,7 +1,9 @@
+import { CirclePlus, Play, Plus, Redo2, Square, Trash2, Undo2 } from "lucide";
 import { generateMusicSamples } from "../audio/musicGenerator.js";
 import { isMusicWave, musicWaves } from "../model/musicProject.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
 import { appendChildren, createElement, createField, createIconButton, createTextElement } from "./dom.js";
+import type { AppIcon } from "./icons.js";
 import { renderWaveformSamples } from "./renderWaveform.js";
 import type { ModeSurface, MusicRenderActions, RenderActions } from "./appTypes.js";
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
@@ -53,7 +55,7 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
 
   const instrumentList = createElement("section", "music-instruments");
   const instrumentTitle = createElement("div", "panel-title compact-title");
-  const addInstrumentButton = createIconButton("+", "Add instrument");
+  const addInstrumentButton = createIconButton(Plus, "Add instrument");
   addInstrumentButton.addEventListener("click", actions.addInstrument);
   instrumentTitle.append(createTextElement("h2", "Instruments"), addInstrumentButton);
   instrumentList.append(instrumentTitle);
@@ -76,20 +78,18 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
 
 function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
   const panel = renderAssetSidebarPanel("music-toolbar-panel toolbar");
-  const buttons: Array<[string, string, () => void]> = [
-    ["↶", "Undo", shellActions.undo],
-    ["↷", "Redo", shellActions.redo],
-    ["▶", "Play preview", shellActions.playSound],
-    ["■", "Stop preview", shellActions.stopSound],
-    ["+", "Add note", actions.addNote],
-    ["◉", "Add instrument", actions.addInstrument],
+  const buttons: Array<[AppIcon, string, () => void]> = [
+    [Undo2, "Undo", shellActions.undo],
+    [Redo2, "Redo", shellActions.redo],
+    [Play, "Play preview", shellActions.playSound],
+    [Square, "Stop preview", shellActions.stopSound],
+    [Plus, "Add note", actions.addNote],
+    [CirclePlus, "Add instrument", actions.addInstrument],
   ];
 
-  for (const [label, title, onClick] of buttons) {
-    const button = createTextElement("button", label, "tool-button");
+  for (const [icon, title, onClick] of buttons) {
+    const button = createIconButton(icon, title, "tool-button");
     button.type = "button";
-    button.title = title;
-    button.setAttribute("aria-label", title);
     button.addEventListener("click", onClick);
     panel.append(button);
   }
@@ -100,7 +100,7 @@ function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderAct
 function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
   const panel = renderEditorArea("music-notes");
   const title = createElement("div", "panel-title");
-  const addButton = createIconButton("+", "Add note");
+  const addButton = createIconButton(Plus, "Add note");
   addButton.addEventListener("click", actions.addNote);
   title.append(createTextElement("h2", "Notes"), addButton);
   panel.append(title);
@@ -140,7 +140,7 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
   const selectedInstrument =
     state.selectedInstrumentIndex === null ? undefined : state.project.instruments[state.selectedInstrumentIndex];
   const title = createElement("div", "panel-title");
-  const deleteButton = createIconButton("×", "Delete selected note", "icon-button danger");
+  const deleteButton = createIconButton(Trash2, "Delete selected note", "icon-button danger");
   deleteButton.disabled = selectedNote === null;
   deleteButton.addEventListener("click", actions.deleteNote);
   title.append(createTextElement("h2", "Music edit"), deleteButton);
@@ -159,7 +159,7 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
 
   if (selectedInstrument !== undefined) {
     const instrumentTitle = createElement("div", "panel-title compact-title");
-    const deleteInstrumentButton = createIconButton("×", "Delete selected instrument", "icon-button danger");
+    const deleteInstrumentButton = createIconButton(Trash2, "Delete selected instrument", "icon-button danger");
     deleteInstrumentButton.disabled = state.project.instruments.length <= 1;
     deleteInstrumentButton.addEventListener("click", actions.deleteInstrument);
     instrumentTitle.append(createTextElement("h2", "Instrument"), deleteInstrumentButton);

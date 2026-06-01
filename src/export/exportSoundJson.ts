@@ -10,7 +10,7 @@ interface ExportedSoundCommand {
 }
 
 interface ExportedSoundJson {
-  type: "sound";
+  type: "sfx";
   id: string;
   commands: ExportedSoundCommand[];
 }
@@ -21,7 +21,7 @@ export function exportSoundJson(project: SoundProject): string | null {
   }
 
   const exportedProject: ExportedSoundJson = {
-    type: "sound",
+    type: "sfx",
     id: project.id,
     commands: project.commands.map(exportCommand),
   };

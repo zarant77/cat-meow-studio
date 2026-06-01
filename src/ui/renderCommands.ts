@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, Copy, Plus, Trash2 } from "lucide";
 import type { EditorState } from "../state/editorState.js";
 import { formatWaveLabel } from "../utils/validation.js";
 import { appendChildren, createElement, createIconButton, createTextElement } from "./dom.js";
@@ -6,7 +7,7 @@ import type { RenderActions } from "./appTypes.js";
 export function renderCommands(state: EditorState, actions: RenderActions): HTMLElement {
   const commandList = createElement("section", "panel command-list editor-area sfx-editor-area");
   const panelTitle = createElement("div", "panel-title");
-  const addButton = createIconButton("+", "Add command");
+  const addButton = createIconButton(Plus, "Add command");
   addButton.addEventListener("click", actions.addCommand);
   panelTitle.append(createTextElement("h2", "Commands"), addButton);
   commandList.append(panelTitle);
@@ -50,10 +51,10 @@ export function renderCommands(state: EditorState, actions: RenderActions): HTML
     ]);
 
     const actionsElement = createElement("div", "command-actions");
-    const moveUpButton = createIconButton("↑", "Move up");
-    const moveDownButton = createIconButton("↓", "Move down");
-    const duplicateButton = createIconButton("⧉", "Duplicate");
-    const deleteButton = createIconButton("×", "Delete", "icon-button danger");
+    const moveUpButton = createIconButton(ArrowUp, "Move up");
+    const moveDownButton = createIconButton(ArrowDown, "Move down");
+    const duplicateButton = createIconButton(Copy, "Duplicate");
+    const deleteButton = createIconButton(Trash2, "Delete", "icon-button danger");
 
     moveUpButton.disabled = index === 0;
     moveDownButton.disabled = index === state.commands.length - 1;
