@@ -1,0 +1,147 @@
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.panel-title.compact-title {
+  margin: 0;
+}
+
+.list-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 31px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.command-card {
+  padding-block: 7px;
+  cursor: pointer;
+}
+
+.command-card:focus-visible {
+  outline: 3px solid var(--color-accent-soft);
+  outline-offset: 2px;
+}
+
+.command-card.is-selected,
+.list-row.is-selected {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.sfx-command-row {
+  display: grid;
+  grid-template-columns: 42px 90px minmax(120px, 1fr) 70px 70px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+
+.sfx-command-row strong {
+  color: var(--color-accent);
+}
+
+.command-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.command-empty-state {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  padding: 22px;
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.command-empty-state strong {
+  color: var(--color-text);
+}
+
+.command-empty-state span {
+  max-width: 34rem;
+}
+
+@media (max-width: 720px) {
+  .command-card {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .sfx-command-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.music-instruments {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 6px;
+  margin-top: 10px;
+  padding-top: 9px;
+  border-top: 1px solid var(--color-border);
+}
+
+.music-list-button {
+  text-align: left;
+}
+
+.tracker-grid {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+
+.music-note-grid {
+  grid-template-columns: 72px 64px minmax(80px, 1fr) 64px 64px;
+}
+
+.tracker-grid strong {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 2px 0 3px;
+  background: #15110c;
+  color: var(--color-text-soft);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.tracker-row {
+  display: grid;
+  align-items: center;
+  margin: 0;
+}
+
+button.tracker-row {
+  text-align: left;
+}
+
+.music-notes {
+  min-height: 0;
+}
+
+.music-notes .panel-title {
+  flex: 0 0 auto;
+  margin-bottom: 8px;
+}
+
+.music-notes .tracker-grid {
+  flex: 1 1 auto;
+}

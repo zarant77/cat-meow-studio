@@ -1,0 +1,69 @@
+* {
+  box-sizing: border-box;
+}
+
+html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 78% 22%, rgba(255, 199, 28, 0.12), transparent 28rem), linear-gradient(135deg, #100d09, #1a150f 58%, #0f0d0a);
+  color: var(--color-text);
+  font-family: var(--font-main);
+}
+
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+input,
+select {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.24);
+  color: var(--color-text);
+  outline: none;
+}
+
+input:focus,
+select:focus {
+  border-color: var(--color-border-strong);
+  box-shadow: 0 0 0 3px var(--color-accent-soft);
+}
+
+input[type="text"],
+input[type="number"],
+select {
+  height: 36px;
+  padding: 0 10px;
+}
+
+input[type="range"] {
+  accent-color: var(--color-accent);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
