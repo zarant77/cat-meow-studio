@@ -140,7 +140,8 @@ export function renderToolbar(mode: AppMode, actions: RenderActions): HTMLElemen
   const importButton = createToolbarButton("↥", getImportTitle(mode));
   const clearSavedButton = createToolbarButton("⌫", "Clear saved project");
   const cButton = createToolbarButton("C", "Export C source");
-  const projectButtons = [newButton, addButton, jsonButton, importButton, cButton];
+  const allCButton = createToolbarButton("All C", "Export all C sources");
+  const projectButtons = [newButton, addButton, jsonButton, importButton];
   undoButton.dataset.shellAction = "undo";
   redoButton.dataset.shellAction = "redo";
 
@@ -166,6 +167,7 @@ export function renderToolbar(mode: AppMode, actions: RenderActions): HTMLElemen
   importButton.addEventListener("click", actions.importSoundJson);
   clearSavedButton.addEventListener("click", actions.clearSavedProject);
   cButton.addEventListener("click", actions.exportSoundC);
+  allCButton.addEventListener("click", actions.exportAllC);
 
   toolbar.append(
     undoButton,
@@ -179,6 +181,7 @@ export function renderToolbar(mode: AppMode, actions: RenderActions): HTMLElemen
     importButton,
     clearSavedButton,
     cButton,
+    allCButton,
   );
   return toolbar;
 }

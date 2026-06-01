@@ -1,7 +1,9 @@
 import type { AssetId, AssetKind, Project, ProjectAsset } from "../model/assets.js";
 import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 
-type SelectedAssetIds = Record<AssetKind, AssetId | null>;
+export type SelectedAssetIds = Record<AssetKind, AssetId | null>;
+
+type ProjectStateListener = () => void;
 
 const initialProject: Project = {
   id: "cat-meow-studio",
@@ -10,11 +12,53 @@ const initialProject: Project = {
 };
 
 let projectState: Project = cloneProject(initialProject);
-let selectedAssetIds: SelectedAssetIds = {
-  sprite: null,
-  music: null,
-  sfx: null,
-};
+let selectedAssetIds: SelectedAssetIds = createEmptySelectedAssetIds();
+const projectStateListeners: ProjectStateListener[] = [];
+
+export function subscribeProjectState(listener: ProjectStateListener): () => void {
+  projectStateListeners.push(listener);
+
+  return () => {
+    const index = projectStateListeners.indexOf(listener);
+
+    if (index !== -1) {
+      projectStateListeners.splice(index, 1);
+    }
+  };
+}
+
+export function replaceProjectState(project: Project, selectedIds: SelectedAssetIds, options: { emit?: boolean } = {}): void {
+  projectState = cloneProject(project);
+  selectedAssetIds = {
+    sprite: selectedIds.sprite,
+    music: selectedIds.music,
+    sfx: selectedIds.sfx,
+  };
+
+  if (options.emit ?? true) {
+    emitProjectStateChanged();
+  }
+}
+
+export function resetProjectState(options: { emit?: boolean } = {}): void {
+  replaceProjectState(initialProject, createEmptySelectedAssetIds(), options);
+}
+
+export function getSelectedAssetIds(): SelectedAssetIds {
+  return {
+    sprite: selectedAssetIds.sprite,
+    music: selectedAssetIds.music,
+    sfx: selectedAssetIds.sfx,
+  };
+}
+
+function createEmptySelectedAssetIds(): SelectedAssetIds {
+  return {
+    sprite: null,
+    music: null,
+    sfx: null,
+  };
+}
 
 export function getProject(): Project {
   return cloneProject(projectState);
@@ -42,6 +86,7 @@ export function upsertProjectAsset(asset: ProjectAsset): void {
       ...selectedAssetIds,
       [asset.kind]: nextAsset.id,
     };
+    emitProjectStateChanged();
     return;
   }
 
@@ -53,6 +98,7 @@ export function upsertProjectAsset(asset: ProjectAsset): void {
     ...selectedAssetIds,
     [asset.kind]: nextAsset.id,
   };
+  emitProjectStateChanged();
 }
 
 export function upsertCurrentProjectAsset(asset: ProjectAsset): void {
@@ -80,6 +126,7 @@ export function upsertCurrentProjectAsset(asset: ProjectAsset): void {
       ...selectedAssetIds,
       [asset.kind]: nextAsset.id,
     };
+    emitProjectStateChanged();
     return;
   }
 
@@ -91,6 +138,7 @@ export function upsertCurrentProjectAsset(asset: ProjectAsset): void {
     ...selectedAssetIds,
     [asset.kind]: nextAsset.id,
   };
+  emitProjectStateChanged();
 }
 
 export function findProjectAsset(kind: AssetKind, id: AssetId): ProjectAsset | null {
@@ -110,6 +158,7 @@ export function selectProjectAsset(kind: AssetKind, id: AssetId): ProjectAsset |
     ...selectedAssetIds,
     [kind]: id,
   };
+  emitProjectStateChanged();
 
   return asset;
 }
@@ -119,6 +168,7 @@ export function setSelectedProjectAsset(kind: AssetKind, id: AssetId | null): vo
     ...selectedAssetIds,
     [kind]: id,
   };
+  emitProjectStateChanged();
 }
 
 export function getSelectedProjectAssetId(kind: AssetKind): AssetId | null {
@@ -132,6 +182,7 @@ export function deleteProjectAsset(kind: AssetKind, id: AssetId): void {
   };
 
   if (selectedAssetIds[kind] !== id) {
+    emitProjectStateChanged();
     return;
   }
 
@@ -140,6 +191,7 @@ export function deleteProjectAsset(kind: AssetKind, id: AssetId): void {
     ...selectedAssetIds,
     [kind]: nextSelectedAsset?.id ?? null,
   };
+  emitProjectStateChanged();
 }
 
 export function renameProjectAsset(kind: AssetKind, id: AssetId, name: string): ProjectAsset | null {
@@ -319,4 +371,10 @@ function cloneSceneNode(node: SceneNode): SceneNode {
     ...node,
     children: node.children.map(cloneSceneNode),
   };
+}
+
+function emitProjectStateChanged(): void {
+  for (const listener of projectStateListeners) {
+    listener();
+  }
 }

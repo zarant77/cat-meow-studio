@@ -3,23 +3,32 @@ import { isValidSoundId, toSoundSymbolName } from "../utils/symbolName.js";
 
 const includeLine = '#include "../audio/sound_definition.h"';
 
-export function exportSoundC(project: SoundProject): string | null {
+interface SoundCOptions {
+  numericId?: number;
+}
+
+export function exportSoundC(project: SoundProject, options: SoundCOptions = {}): string | null {
   if (!isValidSoundId(project.id)) {
     return null;
   }
 
   const commandLines = project.commands.map(formatCommandLine);
   const symbolName = toSoundSymbolName(project.id);
+  const soundId = getSoundIdConstant(project.id);
 
   return [
     includeLine,
+    "",
+    "typedef enum {",
+    `    ${soundId} = ${clampMinimum(options.numericId ?? 1, 1)}`,
+    "} SoundId;",
     "",
     "static const SoundCommand COMMANDS[] = {",
     ...commandLines,
     "};",
     "",
     `const SoundDefinition ${symbolName} = {`,
-    `    .id = "${project.id}",`,
+    `    .id = ${soundId},`,
     "",
     "    .commands = COMMANDS,",
     "    .command_count = sizeof(COMMANDS) / sizeof(COMMANDS[0]),",
@@ -29,10 +38,9 @@ export function exportSoundC(project: SoundProject): string | null {
 }
 
 function formatCommandLine(command: SoundCommand): string {
-  return `    { ${getWaveConstant(command.wave)}, ${clampMinimum(command.frequencyStart, 1)}, ${clampMinimum(
+  return `    { ${getWaveConstant(command.wave)}, ${frequencyToNote(command.frequencyStart)}, ${frequencyToNote(
     command.frequencyEnd,
-    1,
-  )}, ${clampMinimum(command.durationMs, 1)}, ${clampRange(command.volume, 0, 100)} },`;
+  )}, ${clampMinimum(command.durationMs, 1)}, ${volumeToByte(command.volume)} },`;
 }
 
 function getWaveConstant(wave: SoundWave): string {
@@ -62,4 +70,23 @@ function clampRange(value: number, minimum: number, maximum: number): number {
   }
 
   return Math.min(maximum, Math.max(minimum, Math.round(value)));
+}
+
+function frequencyToNote(value: number): number {
+  const frequency = clampMinimum(value, 1);
+  const note = Math.round(69 + 12 * Math.log2(frequency / 440));
+
+  return clampRange(note, 0, 127);
+}
+
+function volumeToByte(value: number): number {
+  return clampRange((clampRange(value, 0, 100) / 100) * 255, 0, 255);
+}
+
+function getSoundIdConstant(soundId: string): string {
+  return `SOUND_ID_${toEnumToken(soundId)}`;
+}
+
+function toEnumToken(value: string): string {
+  return value.toUpperCase().replace(/[^A-Z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }

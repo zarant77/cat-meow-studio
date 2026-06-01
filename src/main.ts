@@ -1,8 +1,13 @@
 import { AudioPreview } from "./audio/audioPreview.js";
 import { generateMusicSamples } from "./audio/musicGenerator.js";
-import { exportMusicC } from "./export/exportMusicC.js";
+import {
+  exportProjectC,
+  exportProjectMusicC,
+  exportProjectSfxC,
+  exportProjectSpritesC,
+  type GeneratedCFile,
+} from "./export/exportProjectC.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
-import { exportSoundC } from "./export/exportSoundC.js";
 import { exportSoundJson } from "./export/exportSoundJson.js";
 import { getSoundExportReadiness } from "./export/soundReadiness.js";
 import { importMusicJson } from "./import/importMusicJson.js";
@@ -51,13 +56,11 @@ import {
 } from "./state/musicEditorState.js";
 import {
   clearAutosavedProject,
-  loadAutosavedActiveMode,
-  loadAutosavedMusicProject,
-  loadAutosavedProject,
   saveAutosavedActiveMode,
   saveAutosavedMusicProject,
   saveAutosavedProject,
 } from "./storage/localAutosave.js";
+import { clearLocalProjectState, loadLocalProjectState, saveLocalProjectState } from "./storage/localProjectPersistence.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
 import {
   canRedoSpriteEditor,
@@ -74,10 +77,15 @@ import {
   duplicateProjectAsset,
   findProjectAsset,
   getFirstProjectAsset,
+  getProject,
+  getSelectedAssetIds,
   getSelectedProjectAssetId,
   renameProjectAsset,
+  replaceProjectState,
+  resetProjectState,
   selectProjectAsset,
   setSelectedProjectAsset,
+  subscribeProjectState,
   upsertCurrentProjectAsset,
 } from "./state/projectState.js";
 import { getAssetExplorerItems } from "./state/assetExplorerState.js";
@@ -95,8 +103,9 @@ const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = "sfx";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
-restoreAutosavedProjects();
-syncCurrentAssets();
+initializeLocalProject();
+subscribeProjectState(() => persistLocalProject());
+persistLocalProject();
 
 const actions: RenderActions = {
   undo() {
@@ -190,8 +199,13 @@ const actions: RenderActions = {
     }
   },
   clearSavedProject() {
+    if (!window.confirm("Clear the saved local Cat Meow Studio project? The current session will stay open.")) {
+      return;
+    }
+
     clearAutosavedProject();
-    showStatus("Autosave cleared.", "success");
+    clearLocalProjectState();
+    showStatus("Local project save cleared.", "success");
   },
   exportSoundJson() {
     if (activeMode === "music") {
@@ -233,42 +247,47 @@ const actions: RenderActions = {
     jsonFileInput.click();
   },
   exportSoundC() {
+    syncActiveAsset();
+
     if (activeMode === "music") {
-      const project = getCurrentMusicProject();
-      const source = exportMusicC(project);
-
-      if (source === null) {
-        showStatus("Enter a valid music id before exporting C.", "error");
-        return;
-      }
-
-      downloadFile(`${project.id}.music.c`, source, "text/x-csrc;charset=utf-8");
-      showStatus(`Exported ${project.id}.music.c`, "success");
+      const files = exportProjectMusicC(getProject());
+      downloadGeneratedCFiles(files, "No music assets to export.", "Exported music C sources.");
       return;
     }
 
     if (activeMode === "sprites") {
-      showStatus("Sprite mode export is not implemented yet.", "error");
+      const file = exportProjectSpritesC(getProject());
+
+      if (file === null) {
+        showStatus("No sprite assets to export.", "error");
+        return;
+      }
+
+      downloadGeneratedCFiles([file], "No sprite assets to export.", `Exported ${file.fileName}`);
       return;
     }
 
-    const project = getCurrentProject();
-    const readiness = getSoundExportReadiness(project);
+    const sfxError = getSfxExportError();
 
-    if (readiness.status === "error") {
-      showStatus(`Fix export errors first: ${readiness.errors.join(", ")}.`, "error");
+    if (sfxError !== null) {
+      showStatus(sfxError, "error");
       return;
     }
 
-    const source = exportSoundC(project);
+    const files = exportProjectSfxC(getProject());
+    downloadGeneratedCFiles(files, "No SFX assets to export.", "Exported SFX C sources.");
+  },
+  exportAllC() {
+    syncActiveAsset();
 
-    if (source === null) {
-      showStatus("Enter a valid sound id before exporting C.", "error");
+    const sfxError = getSfxExportError();
+
+    if (sfxError !== null) {
+      showStatus(sfxError, "error");
       return;
     }
 
-    downloadFile(`${project.id}.sound.c`, source, "text/x-csrc;charset=utf-8");
-    showStatus(`Exported ${project.id}.sound.c`, "success");
+    downloadGeneratedCFiles(exportProjectC(getProject()), "No project assets to export.", "Exported all C sources.");
   },
   createFromPreset(presetId) {
     createProjectFromPreset(presetId);
@@ -481,28 +500,33 @@ function deleteAsset(kind: AssetKind, id: AssetId): void {
 
 function loadProjectAsset(asset: ProjectAsset): void {
   selectProjectAsset(asset.kind, asset.id);
+  applyProjectAssetToEditor(asset);
 
   if (asset.kind === "sprite") {
-    replaceSpriteEditorAsset(asset.sprite);
     switchMode("sprites");
     return;
   }
 
   if (asset.kind === "music") {
-    replaceCurrentMusicProject(asset.music, { recordHistory: false });
     saveCurrentMusicProject();
     switchMode("music");
     return;
   }
 
-  replaceCurrentProject(asset.sfx, { recordHistory: false });
   saveCurrentProject();
   switchMode("sfx");
 }
 
 function switchMode(mode: AppMode): void {
+  const selectedAsset = getSelectedProjectAssetForMode(mode);
+
+  if (selectedAsset !== null) {
+    applyProjectAssetToEditor(selectedAsset);
+  }
+
   activeMode = mode;
   saveAutosavedActiveMode(mode);
+  persistLocalProject();
   preview.stop();
   render();
 }
@@ -634,6 +658,20 @@ function syncCurrentAssets(): void {
   syncSpriteEditorAsset();
 }
 
+function syncActiveAsset(): void {
+  if (activeMode === "music") {
+    syncCurrentMusicAsset();
+    return;
+  }
+
+  if (activeMode === "sprites") {
+    syncSpriteEditorAsset();
+    return;
+  }
+
+  syncCurrentSfxAsset();
+}
+
 function syncCurrentSfxAsset(): void {
   upsertCurrentProjectAsset(createSfxProjectAsset(getCurrentProject()));
 }
@@ -642,32 +680,96 @@ function syncCurrentMusicAsset(): void {
   upsertCurrentProjectAsset(createMusicProjectAsset(getCurrentMusicProject()));
 }
 
-function restoreAutosavedProjects(): void {
-  const restoredMessages: string[] = [];
-  const soundProject = loadAutosavedProject();
-  const musicProject = loadAutosavedMusicProject();
-  const savedMode = loadAutosavedActiveMode();
+function initializeLocalProject(): void {
+  const savedProject = loadLocalProjectState();
 
-  if (soundProject !== null) {
-    replaceCurrentProject(soundProject, { recordHistory: false });
-    restoredMessages.push(`Restored autosaved sound project ${soundProject.id}.`);
+  if (savedProject === null) {
+    resetProjectState({ emit: false });
+    syncCurrentAssets();
+    return;
   }
 
-  if (musicProject !== null) {
-    replaceCurrentMusicProject(musicProject, { recordHistory: false });
-    restoredMessages.push(`Restored autosaved music project ${musicProject.id}.`);
+  replaceProjectState(savedProject.project, savedProject.selectedAssetIds, { emit: false });
+  activeMode = savedProject.activeMode;
+
+  const selectedAsset = getSelectedProjectAssetForMode(savedProject.activeMode);
+
+  if (selectedAsset !== null) {
+    selectProjectAsset(selectedAsset.kind, selectedAsset.id);
+    applyProjectAssetToEditor(selectedAsset);
+  }
+}
+
+function getSelectedProjectAssetForMode(mode: AppMode): ProjectAsset | null {
+  const kind = modeToAssetKind(mode);
+  const selectedAssetId = getSelectedProjectAssetId(kind);
+
+  if (selectedAssetId !== null) {
+    const selectedAsset = findProjectAsset(kind, selectedAssetId);
+
+    if (selectedAsset !== null) {
+      return selectedAsset;
+    }
   }
 
-  if (savedMode !== null) {
-    activeMode = savedMode;
+  return getFirstProjectAsset(kind);
+}
+
+function applyProjectAssetToEditor(asset: ProjectAsset): void {
+  if (asset.kind === "sprite") {
+    replaceSpriteEditorAsset(asset.sprite);
+    return;
   }
 
-  if (restoredMessages.length > 0) {
-    status = {
-      message: restoredMessages.join(" "),
-      tone: "success",
-    };
+  if (asset.kind === "music") {
+    replaceCurrentMusicProject(asset.music, { recordHistory: false });
+    return;
   }
+
+  replaceCurrentProject(asset.sfx, { recordHistory: false });
+}
+
+function modeToAssetKind(mode: AppMode): AssetKind {
+  if (mode === "sprites") {
+    return "sprite";
+  }
+
+  return mode;
+}
+
+function persistLocalProject(): void {
+  saveLocalProjectState({
+    project: getProject(),
+    selectedAssetIds: getSelectedAssetIds(),
+    activeMode,
+  });
+}
+
+function getSfxExportError(): string | null {
+  const sfxAssets = getProject().assets.filter((asset) => asset.kind === "sfx");
+
+  for (const asset of sfxAssets) {
+    const readiness = getSoundExportReadiness(asset.sfx);
+
+    if (readiness.status === "error") {
+      return `Fix ${asset.name} export errors first: ${readiness.errors.join(", ")}.`;
+    }
+  }
+
+  return null;
+}
+
+function downloadGeneratedCFiles(files: GeneratedCFile[], emptyMessage: string, successMessage: string): void {
+  if (files.length === 0) {
+    showStatus(emptyMessage, "error");
+    return;
+  }
+
+  for (const file of files) {
+    downloadFile(file.fileName, file.source, "text/x-csrc;charset=utf-8");
+  }
+
+  showStatus(successMessage, "success");
 }
 
 function showStatus(message: string, tone: AppStatus["tone"]): void {

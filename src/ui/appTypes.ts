@@ -17,6 +17,7 @@ export interface RenderActions {
   exportSoundJson: () => void;
   importSoundJson: () => void;
   exportSoundC: () => void;
+  exportAllC: () => void;
   createFromPreset: (presetId: string) => void;
   resetToPreset: () => void;
   selectCommand: (commandId: string) => void;
