@@ -146,6 +146,19 @@ export class SpriteEditorController {
     });
   }
 
+  setPaletteColor(rgba: string): void {
+    const nextColor = this.parseColorInput(rgba);
+
+    if (nextColor === null) {
+      return;
+    }
+
+    this.state.color = nextColor.color;
+    this.state.alpha = nextColor.alpha;
+    this.syncInputs();
+    this.syncUi();
+  }
+
   private bindControls(mount: SpriteEditorMount): void {
     mount.toolButtons.forEach((button) => {
       button.addEventListener("click", () => {

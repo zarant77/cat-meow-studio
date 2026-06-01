@@ -1,16 +1,16 @@
 import { SpriteEditorController } from "../sprites/app/spriteEditorController.js";
-import type { SpriteAssetData } from "../model/assets.js";
+import type { SpriteAssetData, SpritePaletteColor } from "../model/assets.js";
 import { createSpriteProjectAsset } from "../model/assetAdapters.js";
-import { upsertCurrentProjectAsset } from "../state/projectState.js";
-import type { ModeSurface } from "./appTypes.js";
+import { getSpritePalette, isSpritePaletteColorUsed, upsertCurrentProjectAsset } from "../state/projectState.js";
+import type { ModeSurface, SpritePaletteActions } from "./appTypes.js";
 import { createElement, createField, createTextElement } from "./dom.js";
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
 
 const spriteEditorController = new SpriteEditorController();
 spriteEditorController.setAssetChangeListener(syncSpriteEditorAsset);
 
-export function renderSpriteEditorSurface(): ModeSurface {
-  const mount = createSpriteMount();
+export function renderSpriteEditorSurface(paletteActions: SpritePaletteActions): ModeSurface {
+  const mount = createSpriteMount(paletteActions);
 
   window.requestAnimationFrame(() => {
     if (mount.canvas.isConnected) {
@@ -30,7 +30,7 @@ export function destroySpritesWorkspace(): void {
   spriteEditorController.destroy();
 }
 
-function createSpriteMount(): {
+function createSpriteMount(paletteActions: SpritePaletteActions): {
   assetPanel: HTMLElement;
   editorArea: HTMLElement;
   inspectorPanel: HTMLElement;
@@ -115,6 +115,7 @@ function createSpriteMount(): {
   const colorRow = createElement("div", "sprite-color-row");
   colorRow.append(colorInput, colorHexInput);
   colorFields.append(createTextElement("h2", "Paint"), createField("Color", colorRow));
+  colorFields.append(renderPaletteSection(getSpritePalette(), paletteActions));
 
   const toolSection = createElement("section", "sprite-tool-section");
   const toolGrid = createElement("div", "sprite-tool-grid");
@@ -240,6 +241,10 @@ export function replaceSpriteEditorAsset(sprite: SpriteAssetData): void {
   syncSpriteEditorAsset();
 }
 
+export function selectSpritePaletteColor(rgba: string): void {
+  spriteEditorController.setPaletteColor(rgba);
+}
+
 function createToolButton(kind: string, label: string, title: string): HTMLButtonElement {
   const button = createSpriteButton(label, title, "sprite-icon-button tool-button");
   button.dataset.kind = kind;
@@ -261,6 +266,53 @@ function createSpriteInput(type: string): HTMLInputElement {
   input.type = type;
 
   return input;
+}
+
+function renderPaletteSection(palette: readonly SpritePaletteColor[], actions: SpritePaletteActions): HTMLElement {
+  const paletteSection = createElement("div", "sprite-palette");
+  const header = createElement("div", "sprite-palette-header");
+  const addButton = createSpriteButton("+", "Add palette color", "sprite-icon-button");
+  addButton.disabled = palette.length >= 256;
+  addButton.addEventListener("click", actions.addColor);
+  header.append(createTextElement("h3", "Palette"), addButton);
+  paletteSection.append(header);
+
+  const list = createElement("div", "sprite-palette-list");
+
+  palette.forEach((color, index) => {
+    const row = createElement("div", "sprite-palette-row");
+    const swatch = createSpriteButton(String(index), `Use ${color.name}`, "sprite-palette-swatch");
+    const nameInput = createSpriteInput("text");
+    const rgbaInput = createSpriteInput("text");
+    const deleteButton = createSpriteButton("×", "Delete palette color", "sprite-icon-button danger");
+
+    swatch.style.backgroundColor = rgbaToCss(color.rgba);
+    swatch.addEventListener("click", () => actions.selectColor(index));
+    nameInput.value = color.name;
+    nameInput.disabled = index === 0;
+    nameInput.addEventListener("change", () => actions.renameColor(index, nameInput.value));
+    rgbaInput.value = color.rgba;
+    rgbaInput.disabled = index === 0;
+    rgbaInput.addEventListener("change", () => actions.updateColor(index, rgbaInput.value));
+    deleteButton.disabled = index === 0 || isSpritePaletteColorUsed(index);
+    deleteButton.addEventListener("click", () => actions.deleteColor(index));
+
+    row.append(swatch, nameInput, rgbaInput, deleteButton);
+    list.append(row);
+  });
+
+  paletteSection.append(list);
+
+  return paletteSection;
+}
+
+function rgbaToCss(rgba: string): string {
+  const red = Number.parseInt(rgba.slice(1, 3), 16);
+  const green = Number.parseInt(rgba.slice(3, 5), 16);
+  const blue = Number.parseInt(rgba.slice(5, 7), 16);
+  const alpha = Number.parseInt(rgba.slice(7, 9), 16) / 255;
+
+  return `rgb(${red} ${green} ${blue} / ${alpha})`;
 }
 
 function createClearDialog(): HTMLDialogElement {

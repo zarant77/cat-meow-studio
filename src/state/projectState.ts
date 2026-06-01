@@ -1,4 +1,4 @@
-import type { AssetId, AssetKind, Project, ProjectAsset } from "../model/assets.js";
+import type { AssetId, AssetKind, Project, ProjectAsset, SpritePaletteColor } from "../model/assets.js";
 import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 
 export type SelectedAssetIds = Record<AssetKind, AssetId | null>;
@@ -8,6 +8,7 @@ type ProjectStateListener = () => void;
 const initialProject: Project = {
   id: "cat-meow-studio",
   name: "Cat Meow Studio",
+  spritePalette: createDefaultSpritePalette(),
   assets: [],
 };
 
@@ -29,6 +30,7 @@ export function subscribeProjectState(listener: ProjectStateListener): () => voi
 
 export function replaceProjectState(project: Project, selectedIds: SelectedAssetIds, options: { emit?: boolean } = {}): void {
   projectState = cloneProject(project);
+  ensureAllSpriteAssetColorsInPalette();
   selectedAssetIds = {
     sprite: selectedIds.sprite,
     music: selectedIds.music,
@@ -69,6 +71,7 @@ export function getProjectAssets(): ProjectAsset[] {
 }
 
 export function upsertProjectAsset(asset: ProjectAsset): void {
+  ensureSpriteAssetColorsInPalette(asset);
   const existingIndex = projectState.assets.findIndex((candidate) => candidate.kind === asset.kind && candidate.id === asset.id);
   const existingAsset = existingIndex === -1 ? null : projectState.assets[existingIndex];
   const nextAsset: ProjectAsset = {
@@ -102,6 +105,7 @@ export function upsertProjectAsset(asset: ProjectAsset): void {
 }
 
 export function upsertCurrentProjectAsset(asset: ProjectAsset): void {
+  ensureSpriteAssetColorsInPalette(asset);
   const selectedAssetId = selectedAssetIds[asset.kind];
   const existingIndex = projectState.assets.findIndex((candidate) => {
     if (candidate.kind !== asset.kind) {
@@ -246,10 +250,116 @@ export function getProjectAssetSummary(): Array<Pick<ProjectAsset, "id" | "kind"
   }));
 }
 
+export function getSpritePalette(): SpritePaletteColor[] {
+  return projectState.spritePalette.map(cloneSpritePaletteColor);
+}
+
+export function addSpritePaletteColor(): SpritePaletteColor | null {
+  if (projectState.spritePalette.length >= 256) {
+    return null;
+  }
+
+  const nextColor: SpritePaletteColor = {
+    name: toUniquePaletteName("Color"),
+    rgba: toUniquePaletteRgba("#ffffffff"),
+  };
+
+  projectState = {
+    ...projectState,
+    spritePalette: [...projectState.spritePalette, nextColor],
+  };
+  emitProjectStateChanged();
+
+  return cloneSpritePaletteColor(nextColor);
+}
+
+export function renameSpritePaletteColor(index: number, name: string): SpritePaletteColor | null {
+  const color = projectState.spritePalette[index];
+  const nextName = name.trim();
+
+  if (color === undefined || nextName === "") {
+    return null;
+  }
+
+  const nextColor = {
+    ...color,
+    name: nextName,
+  };
+
+  projectState = {
+    ...projectState,
+    spritePalette: projectState.spritePalette.map((candidate, candidateIndex) => (candidateIndex === index ? nextColor : candidate)),
+  };
+  emitProjectStateChanged();
+
+  return cloneSpritePaletteColor(nextColor);
+}
+
+export function updateSpritePaletteColor(index: number, rgba: string): SpritePaletteColor | null {
+  const color = projectState.spritePalette[index];
+  const nextRgba = normalizeRgba(rgba);
+
+  if (color === undefined || nextRgba === null || (index === 0 && nextRgba !== "#00000000")) {
+    return null;
+  }
+
+  const nextColor = {
+    ...color,
+    rgba: nextRgba,
+  };
+
+  projectState = {
+    ...projectState,
+    spritePalette: projectState.spritePalette.map((candidate, candidateIndex) => (candidateIndex === index ? nextColor : candidate)),
+    assets: replaceSpriteColor(projectState.assets, color.rgba, nextRgba),
+  };
+  emitProjectStateChanged();
+
+  return cloneSpritePaletteColor(nextColor);
+}
+
+export function deleteSpritePaletteColor(index: number): boolean {
+  if (index <= 0 || index >= projectState.spritePalette.length || isSpritePaletteColorUsed(index)) {
+    return false;
+  }
+
+  projectState = {
+    ...projectState,
+    spritePalette: projectState.spritePalette.filter((_, candidateIndex) => candidateIndex !== index),
+  };
+  emitProjectStateChanged();
+
+  return true;
+}
+
+export function isSpritePaletteColorUsed(index: number): boolean {
+  const color = projectState.spritePalette[index];
+
+  if (color === undefined) {
+    return false;
+  }
+
+  return projectState.assets.some((asset) => {
+    if (asset.kind !== "sprite") {
+      return false;
+    }
+
+    return isColorUsedInNodes(asset.sprite.nodes, color.rgba);
+  });
+}
+
 function cloneProject(project: Project): Project {
   return {
     ...project,
+    spritePalette: project.spritePalette.map(cloneSpritePaletteColor),
     assets: project.assets.map(cloneProjectAsset),
+  };
+}
+
+function cloneSpritePaletteColor(color: SpritePaletteColor): SpritePaletteColor {
+  return {
+    name: color.name,
+    rgba: color.rgba,
   };
 }
 
@@ -371,6 +481,168 @@ function cloneSceneNode(node: SceneNode): SceneNode {
     ...node,
     children: node.children.map(cloneSceneNode),
   };
+}
+
+function createDefaultSpritePalette(): SpritePaletteColor[] {
+  return [
+    { name: "Transparent", rgba: "#00000000" },
+    { name: "Ink", rgba: "#111111ff" },
+    { name: "White", rgba: "#ffffffff" },
+  ];
+}
+
+function ensureSpriteAssetColorsInPalette(asset: ProjectAsset): void {
+  if (asset.kind !== "sprite") {
+    return;
+  }
+
+  for (const rgba of getNodeColors(asset.sprite.nodes)) {
+    addRgbaToProjectPalette(rgba);
+  }
+}
+
+function ensureAllSpriteAssetColorsInPalette(): void {
+  for (const asset of projectState.assets) {
+    ensureSpriteAssetColorsInPalette(asset);
+  }
+}
+
+function addRgbaToProjectPalette(rgba: string): void {
+  if (projectState.spritePalette.some((color) => color.rgba === rgba) || projectState.spritePalette.length >= 256) {
+    return;
+  }
+
+  projectState = {
+    ...projectState,
+    spritePalette: [
+      ...projectState.spritePalette,
+      {
+        name: toUniquePaletteName("Color"),
+        rgba,
+      },
+    ],
+  };
+}
+
+function getNodeColors(nodes: readonly SceneNode[]): string[] {
+  const colors: string[] = [];
+
+  for (const node of nodes) {
+    if (node.type === "group") {
+      colors.push(...getNodeColors(node.children));
+      continue;
+    }
+
+    colors.push(primitiveToRgba(node.command.color, node.command.alpha));
+  }
+
+  return colors;
+}
+
+function replaceSpriteColor(assets: readonly ProjectAsset[], oldRgba: string, nextRgba: string): ProjectAsset[] {
+  const color = rgbaToPrimitiveColor(nextRgba);
+
+  return assets.map((asset) => {
+    if (asset.kind !== "sprite") {
+      return cloneProjectAsset(asset);
+    }
+
+    return {
+      ...asset,
+      sprite: {
+        ...asset.sprite,
+        nodes: replaceNodeColor(asset.sprite.nodes, oldRgba, color),
+      },
+    };
+  });
+}
+
+function replaceNodeColor(nodes: readonly SceneNode[], oldRgba: string, nextColor: { color: string; alpha: number }): SceneNode[] {
+  return nodes.map((node) => {
+    if (node.type === "group") {
+      return {
+        ...node,
+        children: replaceNodeColor(node.children, oldRgba, nextColor),
+      };
+    }
+
+    if (primitiveToRgba(node.command.color, node.command.alpha) !== oldRgba) {
+      return cloneSceneNode(node);
+    }
+
+    return {
+      ...node,
+      command: {
+        ...node.command,
+        color: nextColor.color,
+        alpha: nextColor.alpha,
+      },
+    };
+  });
+}
+
+function isColorUsedInNodes(nodes: readonly SceneNode[], rgba: string): boolean {
+  return nodes.some((node) => {
+    if (node.type === "group") {
+      return isColorUsedInNodes(node.children, rgba);
+    }
+
+    return primitiveToRgba(node.command.color, node.command.alpha) === rgba;
+  });
+}
+
+function primitiveToRgba(color: string, alpha: number): string {
+  const normalizedColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : "#000000";
+  const normalizedAlpha = Math.min(255, Math.max(0, Number.isFinite(alpha) ? Math.round(alpha) : 255));
+
+  return `${normalizedColor}${normalizedAlpha.toString(16).padStart(2, "0")}`;
+}
+
+function rgbaToPrimitiveColor(rgba: string): { color: string; alpha: number } {
+  return {
+    color: rgba.slice(0, 7),
+    alpha: Number.parseInt(rgba.slice(7, 9), 16),
+  };
+}
+
+function normalizeRgba(value: string): string | null {
+  const trimmedValue = value.trim();
+  const match = /^(?:#|0x)([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/i.exec(trimmedValue);
+
+  if (match === null) {
+    return null;
+  }
+
+  return `#${match[1].toLowerCase()}${(match[2] ?? "ff").toLowerCase()}`;
+}
+
+function toUniquePaletteName(baseName: string): string {
+  let candidate = baseName;
+  let suffix = projectState.spritePalette.length;
+
+  while (projectState.spritePalette.some((color) => color.name === candidate)) {
+    suffix += 1;
+    candidate = `${baseName} ${suffix}`;
+  }
+
+  return candidate;
+}
+
+function toUniquePaletteRgba(baseRgba: string): string {
+  if (!projectState.spritePalette.some((color) => color.rgba === baseRgba)) {
+    return baseRgba;
+  }
+
+  for (let value = 0; value <= 255; value += 1) {
+    const channel = value.toString(16).padStart(2, "0");
+    const candidate = `#${channel}${channel}${channel}ff`;
+
+    if (!projectState.spritePalette.some((color) => color.rgba === candidate)) {
+      return candidate;
+    }
+  }
+
+  return baseRgba;
 }
 
 function emitProjectStateChanged(): void {

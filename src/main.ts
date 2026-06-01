@@ -69,6 +69,7 @@ import {
   handleSpriteEditorKeyboardShortcut,
   replaceSpriteEditorAsset,
   redoSpriteEditor,
+  selectSpritePaletteColor,
   syncSpriteEditorAsset,
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
@@ -80,12 +81,17 @@ import {
   getProject,
   getSelectedAssetIds,
   getSelectedProjectAssetId,
+  getSpritePalette,
   renameProjectAsset,
+  renameSpritePaletteColor,
   replaceProjectState,
   resetProjectState,
   selectProjectAsset,
   setSelectedProjectAsset,
+  addSpritePaletteColor,
+  deleteSpritePaletteColor,
   subscribeProjectState,
+  updateSpritePaletteColor,
   upsertCurrentProjectAsset,
 } from "./state/projectState.js";
 import { getAssetExplorerItems } from "./state/assetExplorerState.js";
@@ -396,6 +402,53 @@ const appActions: AppActions = {
     },
     deleteAsset(kind, id) {
       deleteAsset(kind, id);
+    },
+  },
+  spritePalette: {
+    selectColor(index) {
+      const color = getSpritePalette()[index];
+
+      if (color !== undefined) {
+        selectSpritePaletteColor(color.rgba);
+      }
+    },
+    addColor() {
+      const color = addSpritePaletteColor();
+
+      if (color !== null) {
+        selectSpritePaletteColor(color.rgba);
+      }
+
+      render();
+    },
+    renameColor(index, name) {
+      renameSpritePaletteColor(index, name);
+      render();
+    },
+    updateColor(index, rgba) {
+      const color = updateSpritePaletteColor(index, rgba);
+
+      if (color === null) {
+        showStatus("Enter a valid RGBA color like #ffcc00ff.", "error");
+        return;
+      }
+
+      const selectedAsset = getSelectedProjectAssetForMode("sprites");
+
+      if (selectedAsset?.kind === "sprite") {
+        replaceSpriteEditorAsset(selectedAsset.sprite);
+      }
+
+      selectSpritePaletteColor(color.rgba);
+      render();
+    },
+    deleteColor(index) {
+      if (!deleteSpritePaletteColor(index)) {
+        showStatus("Palette color is still used by a sprite.", "error");
+        return;
+      }
+
+      render();
     },
   },
   setMode(mode) {

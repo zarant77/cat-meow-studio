@@ -1,4 +1,4 @@
-import type { AssetId, AssetKind, Project, ProjectAsset, SpriteAssetData } from "../model/assets.js";
+import type { AssetId, AssetKind, Project, ProjectAsset, SpriteAssetData, SpritePaletteColor } from "../model/assets.js";
 import { isMusicWave, type MusicInstrument, type MusicNote, type MusicProject } from "../model/musicProject.js";
 import { soundWaves, type SoundCommand, type SoundProject, type SoundWave } from "../model/soundProject.js";
 import type { SelectedAssetIds } from "../state/projectState.js";
@@ -79,6 +79,7 @@ function readProject(value: unknown): Project | null {
   }
 
   const assets: ProjectAsset[] = [];
+  const spritePalette = readSpritePalette(value.spritePalette);
 
   for (const assetValue of value.assets) {
     const asset = readProjectAsset(assetValue);
@@ -93,8 +94,34 @@ function readProject(value: unknown): Project | null {
   return {
     id: value.id,
     name: value.name,
+    spritePalette,
     assets,
   };
+}
+
+function readSpritePalette(value: unknown): SpritePaletteColor[] {
+  if (!Array.isArray(value)) {
+    return createDefaultSpritePalette();
+  }
+
+  const colors: SpritePaletteColor[] = [];
+
+  for (const colorValue of value.slice(0, 256)) {
+    if (!isRecord(colorValue) || !isString(colorValue.name) || !isRgba(colorValue.rgba)) {
+      continue;
+    }
+
+    colors.push({
+      name: colorValue.name,
+      rgba: colorValue.rgba.toLowerCase(),
+    });
+  }
+
+  if (colors.length === 0 || colors[0].rgba !== "#00000000") {
+    return createDefaultSpritePalette();
+  }
+
+  return colors;
 }
 
 function readProjectAsset(value: unknown): ProjectAsset | null {
@@ -431,4 +458,16 @@ function isPrimitiveKind(value: unknown): value is PrimitiveKind {
 
 function isSoundWave(value: string): value is SoundWave {
   return soundWaves.some((wave) => wave === value);
+}
+
+function isRgba(value: unknown): value is string {
+  return typeof value === "string" && /^#[0-9a-fA-F]{8}$/.test(value);
+}
+
+function createDefaultSpritePalette(): SpritePaletteColor[] {
+  return [
+    { name: "Transparent", rgba: "#00000000" },
+    { name: "Ink", rgba: "#111111ff" },
+    { name: "White", rgba: "#ffffffff" },
+  ];
 }

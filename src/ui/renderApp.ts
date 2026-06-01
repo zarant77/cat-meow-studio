@@ -59,7 +59,7 @@ function renderModeSurface(
   }
 
   if (mode === "sprites") {
-    return renderSpriteEditorSurface();
+    return renderSpriteEditorSurface(actions.spritePalette);
   }
 
   destroySpritesWorkspace();

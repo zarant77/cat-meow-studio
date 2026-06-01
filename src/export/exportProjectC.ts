@@ -21,7 +21,7 @@ export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
     return null;
   }
 
-  const palette = createPalette(sprites);
+  const palette = project.spritePalette.slice(0, 256);
   const spriteBlocks = sprites.map((sprite) => formatSpriteBlock(sprite, palette));
 
   return {
@@ -31,7 +31,7 @@ export function exportProjectSpritesC(project: Project): GeneratedCFile | null {
       '#include "../graphics/sprite_definition.h"',
       "",
       "static const uint32_t CAT_MEOW_GLOBAL_PALETTE[] = {",
-      ...palette.map((color) => `    ${color},`),
+      ...palette.map((color) => `    ${rgbaToCColor(color.rgba)},`),
       "};",
       "",
       "const uint16_t CAT_MEOW_GLOBAL_PALETTE_COUNT = sizeof(CAT_MEOW_GLOBAL_PALETTE) / sizeof(CAT_MEOW_GLOBAL_PALETTE[0]);",
@@ -93,14 +93,14 @@ export function exportProjectC(project: Project): GeneratedCFile[] {
   ];
 }
 
-function formatSpriteBlock(sprite: SpriteProjectAsset, palette: string[]): {
+function formatSpriteBlock(sprite: SpriteProjectAsset, palette: Project["spritePalette"]): {
   primitiveLines: string[];
   definitionLine: string;
 } {
   const symbol = toCIdentifier(sprite.id, "SPRITE", "PRIMITIVES");
   const primitives = flattenNodes(sprite.sprite.nodes).map((primitive) => ({
     primitive,
-    paletteIndex: Math.max(0, palette.indexOf(toPaletteColor(primitive.color))),
+    paletteIndex: Math.max(0, palette.findIndex((color) => color.rgba === primitiveToRgba(primitive))),
   }));
   const primitiveLines = [
     `static const SpritePrimitive ${symbol}[] = {`,
@@ -136,32 +136,6 @@ function formatPrimitive(entry: NamedPrimitive): string {
   )}, ${entry.paletteIndex}, ${alphaToByte(primitive.alpha)} },`;
 }
 
-function createPalette(sprites: readonly SpriteProjectAsset[]): string[] {
-  const colors: string[] = [];
-
-  for (const sprite of sprites) {
-    for (const primitive of flattenNodes(sprite.sprite.nodes)) {
-      const color = toPaletteColor(primitive.color);
-
-      if (!colors.includes(color)) {
-        colors.push(color);
-      }
-    }
-  }
-
-  return colors.length === 0 ? ["0xffffffffu"] : colors;
-}
-
-function toPaletteColor(color: string): string {
-  const normalizedColor = color.trim().toLowerCase();
-
-  if (/^#[0-9a-f]{6}$/.test(normalizedColor)) {
-    return `0xff${normalizedColor.slice(1)}u`;
-  }
-
-  return "0xffffffffu";
-}
-
 function getPrimitiveConstant(kind: PrimitiveKind): string {
   switch (kind) {
     case "rect":
@@ -194,7 +168,20 @@ function toFileStem(value: string): string {
 }
 
 function alphaToByte(value: number): number {
-  return clampInteger(value * 255, 0, 255);
+  return clampInteger(value, 0, 255);
+}
+
+function primitiveToRgba(primitive: Primitive): string {
+  const color = /^#[0-9a-fA-F]{6}$/.test(primitive.color) ? primitive.color.toLowerCase() : "#000000";
+  const alpha = clampInteger(primitive.alpha, 0, 255).toString(16).padStart(2, "0");
+
+  return `${color}${alpha}`;
+}
+
+function rgbaToCColor(rgba: string): string {
+  const normalizedRgba = /^#[0-9a-fA-F]{8}$/.test(rgba) ? rgba.toLowerCase() : "#00000000";
+
+  return `0x${normalizedRgba.slice(1)}u`;
 }
 
 function clampInteger(value: number, minimum: number, maximum: number): number {
