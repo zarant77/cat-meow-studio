@@ -17,7 +17,7 @@ import {
   saveProjectStateByStorageId,
 } from "./projectStore.mjs";
 
-const port = Number(process.env.CMS_PORT ?? 8787);
+const port = Number(process.env.PORT ?? process.env.CMS_PORT ?? 8787);
 const sessionMaxAgeMs = 1000 * 60 * 60 * 24 * 14;
 const db = openDatabase();
 

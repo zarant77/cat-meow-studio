@@ -4,7 +4,9 @@ import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 
-const defaultDatabasePath = resolve("data/cat-meow-studio.sqlite");
+const defaultDatabasePath = process.env.RAILWAY_ENVIRONMENT === undefined
+  ? resolve("data/cat-meow-studio.sqlite")
+  : "/data/cat-meow-studio.sqlite";
 
 export function openDatabase() {
   const databasePath = process.env.CMS_DATABASE_PATH ?? defaultDatabasePath;
