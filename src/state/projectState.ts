@@ -1,4 +1,12 @@
-import type { AssetId, AssetKind, Project, ProjectAsset, SpriteAssetData, SpritePaletteColor, SpriteProjectAsset } from "../model/assets.js";
+import type {
+  AssetId,
+  AssetKind,
+  Project,
+  ProjectAsset,
+  SpriteAssetData,
+  SpritePaletteColor,
+  SpriteProjectAsset,
+} from "../model/assets.js";
 import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 
 export type SelectedAssetIds = Record<AssetKind, AssetId | null>;
@@ -371,13 +379,31 @@ function cloneSpritePaletteColor(color: SpritePaletteColor): SpritePaletteColor 
   };
 }
 
+function cloneSpriteProjectAsset(asset: SpriteProjectAsset): SpriteProjectAsset {
+  return {
+    ...asset,
+    sprite: {
+      ...asset.sprite,
+      palette: asset.sprite.palette.map(cloneSpritePaletteColor),
+      nodes: asset.sprite.nodes.map(cloneSceneNode),
+    },
+  };
+}
+
 function getSelectedSpriteAsset(): SpriteProjectAsset | null {
   const selectedId = selectedAssetIds.sprite;
-  const asset = selectedId === null
-    ? projectState.assets.find((candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite") ?? null
-    : projectState.assets.find((candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite" && candidate.id === selectedId) ?? null;
+  const asset =
+    selectedId === null
+      ? (projectState.assets.find((candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite") ?? null)
+      : (projectState.assets.find(
+          (candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite" && candidate.id === selectedId,
+        ) ?? null);
 
-  return asset === null ? null : cloneProjectAsset(asset);
+  if (asset === null) {
+    return null;
+  }
+
+  return cloneSpriteProjectAsset(asset);
 }
 
 function updateSelectedSpriteAsset(sprite: SpriteAssetData): void {
