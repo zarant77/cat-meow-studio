@@ -55,14 +55,28 @@ import {
   updateSelectedMusicInstrument,
   updateSelectedMusicNote,
 } from "./state/musicEditorState.js";
+import { clearAutosavedProject } from "./storage/localAutosave.js";
 import {
-  clearAutosavedProject,
-  saveAutosavedActiveMode,
-  saveAutosavedMusicProject,
-  saveAutosavedProject,
-} from "./storage/localAutosave.js";
-import { clearLocalProjectState, loadLocalProjectState, saveLocalProjectState } from "./storage/localProjectPersistence.js";
+  addAdminProjectUser,
+  createAdminProject,
+  createAdminUser,
+  getCurrentUser,
+  listProjects,
+  loadAdminData,
+  loadBackendProjectState,
+  login,
+  removeAdminProjectUser,
+  renameAdminProject,
+  saveBackendProjectState,
+  type AdminProjectSummary,
+  type AdminUserSummary,
+  type CurrentUser,
+  type ProjectSummary,
+} from "./storage/backendProjectPersistence.js";
+import { clearLocalProjectState } from "./storage/localProjectPersistence.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
+import { renderAdmin } from "./ui/renderAdmin.js";
+import { renderLogin } from "./ui/renderLogin.js";
 import {
   canRedoSpriteEditor,
   canUndoSpriteEditor,
@@ -86,7 +100,6 @@ import {
   renameProjectAsset,
   renameSpritePaletteColor,
   replaceProjectState,
-  resetProjectState,
   selectProjectAsset,
   setSelectedProjectAsset,
   addSpritePaletteColor,
@@ -110,9 +123,14 @@ const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = "sfx";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
-initializeLocalProject();
-subscribeProjectState(() => persistLocalProject());
-persistLocalProject();
+let currentUser: CurrentUser | null = null;
+let activeView: "studio" | "admin" = "studio";
+let activeBackendProjectId: string | null = null;
+let backendProjects: ProjectSummary[] = [];
+let adminUsers: AdminUserSummary[] = [];
+let adminProjects: AdminProjectSummary[] = [];
+let projectStateSubscription: (() => void) | null = null;
+let saveProjectTimeoutId: number | null = null;
 
 const actions: RenderActions = {
   undo() {
@@ -212,7 +230,8 @@ const actions: RenderActions = {
 
     clearAutosavedProject();
     clearLocalProjectState();
-    showStatus("Local project save cleared.", "success");
+    void persistBackendProject();
+    showStatus("Local migration fallback cleared.", "success");
   },
   exportSoundJson() {
     if (activeMode === "music") {
@@ -358,6 +377,12 @@ const actions: RenderActions = {
     updateProjectId(projectId);
     renderAfterEditorChange();
   },
+  openAdmin() {
+    void openAdminView();
+  },
+  selectBackendProject(storageProjectId) {
+    void switchBackendProject(storageProjectId);
+  },
 };
 
 const musicActions: MusicRenderActions = {
@@ -473,7 +498,51 @@ function render(): void {
     throw new Error("Cat Meow root element was not found");
   }
 
-  renderApp(app, activeMode, getEditorState(), getMusicEditorState(), status, appActions);
+  if (currentUser === null) {
+    renderLogin(app, status, {
+      login(email, password) {
+        void handleLogin(email, password);
+      },
+    });
+    return;
+  }
+
+  if (activeView === "admin") {
+    renderAdmin(app, status, adminUsers, adminProjects, {
+      back() {
+        activeView = "studio";
+        render();
+      },
+      createUser(email, password, role) {
+        void handleCreateAdminUser(email, password, role);
+      },
+      createProject(name, projectId, ownerUserId) {
+        void handleCreateAdminProject(name, projectId, ownerUserId);
+      },
+      renameProject(storageProjectId, name) {
+        void handleRenameAdminProject(storageProjectId, name);
+      },
+      addProjectUser(storageProjectId, userId) {
+        void handleAddProjectUser(storageProjectId, userId);
+      },
+      removeProjectUser(storageProjectId, userId) {
+        void handleRemoveProjectUser(storageProjectId, userId);
+      },
+    });
+    return;
+  }
+
+  renderApp(
+    app,
+    activeMode,
+    getEditorState(),
+    getMusicEditorState(),
+    status,
+    appActions,
+    currentUser,
+    backendProjects,
+    activeBackendProjectId,
+  );
 }
 
 function createAsset(kind: AssetKind): void {
@@ -590,8 +659,7 @@ function switchMode(mode: AppMode): void {
   }
 
   activeMode = mode;
-  saveAutosavedActiveMode(mode);
-  persistLocalProject();
+  void persistBackendProject();
   preview.stop();
   render();
 }
@@ -703,7 +771,6 @@ function renderAfterEditorChange(): void {
 }
 
 function saveCurrentProject(): void {
-  saveAutosavedProject(getCurrentProject());
   syncCurrentSfxAsset();
 }
 
@@ -713,7 +780,6 @@ function renderAfterMusicChange(): void {
 }
 
 function saveCurrentMusicProject(): void {
-  saveAutosavedMusicProject(getCurrentMusicProject());
   syncCurrentMusicAsset();
 }
 
@@ -745,15 +811,11 @@ function syncCurrentMusicAsset(): void {
   upsertCurrentProjectAsset(createMusicProjectAsset(getCurrentMusicProject()));
 }
 
-function initializeLocalProject(): void {
-  const savedProject = loadLocalProjectState();
-
-  if (savedProject === null) {
-    resetProjectState({ emit: false });
-    syncCurrentAssets();
-    return;
-  }
-
+async function initializeBackendProject(): Promise<void> {
+  backendProjects = await listProjects();
+  const savedProject = await loadBackendProjectState(activeBackendProjectId);
+  activeBackendProjectId = savedProject.storageProjectId;
+  backendProjects = await listProjects();
   replaceProjectState(savedProject.project, savedProject.selectedAssetIds, { emit: false });
   activeMode = savedProject.activeMode;
 
@@ -762,7 +824,10 @@ function initializeLocalProject(): void {
   if (selectedAsset !== null) {
     selectProjectAsset(selectedAsset.kind, selectedAsset.id);
     applyProjectAssetToEditor(selectedAsset);
+    return;
   }
+
+  syncCurrentAssets();
 }
 
 function getSelectedProjectAssetForMode(mode: AppMode): ProjectAsset | null {
@@ -802,12 +867,163 @@ function modeToAssetKind(mode: AppMode): AssetKind {
   return mode;
 }
 
-function persistLocalProject(): void {
-  saveLocalProjectState({
-    project: getProject(),
-    selectedAssetIds: getSelectedAssetIds(),
-    activeMode,
-  });
+async function persistBackendProject(): Promise<void> {
+  if (currentUser === null) {
+    return;
+  }
+
+  await saveBackendProjectState(
+    {
+      project: getProject(),
+      selectedAssetIds: getSelectedAssetIds(),
+      activeMode,
+    },
+    activeBackendProjectId,
+  );
+}
+
+function scheduleBackendProjectSave(): void {
+  if (saveProjectTimeoutId !== null) {
+    window.clearTimeout(saveProjectTimeoutId);
+  }
+
+  saveProjectTimeoutId = window.setTimeout(() => {
+    saveProjectTimeoutId = null;
+    void persistBackendProject().catch(() => {
+      showStatus("Could not save project to the backend.", "error");
+    });
+  }, 250);
+}
+
+async function boot(): Promise<void> {
+  try {
+    currentUser = await getCurrentUser();
+
+    if (currentUser === null) {
+      render();
+      return;
+    }
+
+    await initializeBackendProject();
+
+    if (projectStateSubscription === null) {
+      projectStateSubscription = subscribeProjectState(scheduleBackendProjectSave);
+    }
+
+    await persistBackendProject();
+    render();
+  } catch {
+    currentUser = null;
+    showStatus("Login required.", "error");
+  }
+}
+
+async function handleLogin(email: string, password: string): Promise<void> {
+  try {
+    currentUser = await login(email, password);
+    status = null;
+    await initializeBackendProject();
+
+    if (projectStateSubscription === null) {
+      projectStateSubscription = subscribeProjectState(scheduleBackendProjectSave);
+    }
+
+    await persistBackendProject();
+    render();
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Login failed.", "error");
+  }
+}
+
+async function switchBackendProject(storageProjectId: string): Promise<void> {
+  try {
+    await persistBackendProject();
+    activeBackendProjectId = storageProjectId;
+    await initializeBackendProject();
+    preview.stop();
+    render();
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not switch project.", "error");
+  }
+}
+
+async function openAdminView(): Promise<void> {
+  if (currentUser?.role !== "admin") {
+    showStatus("Admin role required.", "error");
+    return;
+  }
+
+  try {
+    const data = await loadAdminData();
+    adminUsers = data.users;
+    adminProjects = data.projects;
+    activeView = "admin";
+    render();
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not load admin page.", "error");
+  }
+}
+
+async function refreshAdminData(): Promise<void> {
+  const data = await loadAdminData();
+  adminUsers = data.users;
+  adminProjects = data.projects;
+  backendProjects = await listProjects();
+}
+
+async function handleCreateAdminUser(email: string, password: string, role: "admin" | "user"): Promise<void> {
+  try {
+    await createAdminUser(email, password, role);
+    await refreshAdminData();
+    showStatus("User created.", "success");
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not create user.", "error");
+  }
+}
+
+async function handleCreateAdminProject(name: string, projectId: string, ownerUserId: string): Promise<void> {
+  try {
+    await createAdminProject(name, projectId, ownerUserId);
+    await refreshAdminData();
+    showStatus("Project created.", "success");
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not create project.", "error");
+  }
+}
+
+async function handleRenameAdminProject(storageProjectId: string, name: string): Promise<void> {
+  try {
+    await renameAdminProject(storageProjectId, name);
+    await refreshAdminData();
+
+    if (activeBackendProjectId === storageProjectId) {
+      await initializeBackendProject();
+    }
+
+    showStatus("Project renamed.", "success");
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not rename project.", "error");
+  }
+}
+
+async function handleAddProjectUser(storageProjectId: string, userId: string): Promise<void> {
+  try {
+    await addAdminProjectUser(storageProjectId, userId);
+    await refreshAdminData();
+    showStatus("User added to project.", "success");
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not add user to project.", "error");
+  }
+}
+
+async function handleRemoveProjectUser(storageProjectId: string, userId: string): Promise<void> {
+  try {
+    await removeAdminProjectUser(storageProjectId, userId);
+    await refreshAdminData();
+    showStatus("User removed from project.", "success");
+  } catch (error) {
+    showStatus(error instanceof Error ? error.message : "Could not remove user from project.", "error");
+  }
 }
 
 function getSfxExportError(): string | null {
@@ -957,4 +1173,4 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
 
 document.addEventListener("keydown", handleKeyboardShortcut);
 
-render();
+void boot();

@@ -1,6 +1,7 @@
 import type { AssetExplorerItem } from "../state/assetExplorerState.js";
 import type { AssetKind } from "../model/assets.js";
-import type { AppMode, AppStatus, AssetExplorerActions, RenderActions } from "./appTypes.js";
+import type { CurrentUser } from "../storage/backendProjectPersistence.js";
+import type { AppMode, AppStatus, AssetExplorerActions, ProjectSummary, RenderActions } from "./appTypes.js";
 import { appendChildren, createElement, createTextElement } from "./dom.js";
 
 interface AppShellParts {
@@ -13,11 +14,14 @@ interface AppShellParts {
   inspectorPanel: HTMLElement;
   previewStatusArea: HTMLElement;
   shellActions: RenderActions;
+  currentUser: CurrentUser;
+  projects: readonly ProjectSummary[];
+  activeBackendProjectId: string | null;
 }
 
 export function renderAppShell(parts: AppShellParts): HTMLElement[] {
   return [
-    renderHeader(parts.assetExplorerItems, parts.assetExplorerActions, parts.shellActions),
+    renderHeader(parts.assetExplorerItems, parts.assetExplorerActions, parts.shellActions, parts.currentUser, parts.projects, parts.activeBackendProjectId),
     renderWorkspace(
       parts.mode,
       parts.toolbar,
@@ -51,6 +55,9 @@ function renderHeader(
   assetExplorerItems: readonly AssetExplorerItem[],
   assetExplorerActions: AssetExplorerActions,
   shellActions: RenderActions,
+  currentUser: CurrentUser,
+  projects: readonly ProjectSummary[],
+  activeBackendProjectId: string | null,
 ): HTMLElement {
   const header = createElement("header", "app-header");
   const brand = createElement("div", "brand");
@@ -64,6 +71,7 @@ function renderHeader(
 
   const nav = createElement("nav", "asset-nav");
   nav.append(
+    renderProjectMenu(projects, activeBackendProjectId, shellActions),
     renderAssetMenu("▦ Sprites", "sprite", "+ New Sprite", assetExplorerItems, assetExplorerActions),
     renderAssetMenu("♪ Music", "music", "+ New Music", assetExplorerItems, assetExplorerActions),
     renderAssetMenu("◒ SFX", "sfx", "+ New SFX", assetExplorerItems, assetExplorerActions),
@@ -71,18 +79,58 @@ function renderHeader(
 
   const actions = createElement("div", "header-actions");
   const exportButton = createTextElement("button", "⇩ Export", "header-action-button");
+  const adminButton = createTextElement("button", "⚙ Admin", "header-action-button");
   const fullscreenButton = createTextElement("button", "⛶", "header-action-button icon-only");
   exportButton.type = "button";
+  adminButton.type = "button";
   fullscreenButton.type = "button";
   exportButton.title = "Export Little One assets";
+  adminButton.title = "Manage users and projects";
   fullscreenButton.title = "Fullscreen";
   fullscreenButton.setAttribute("aria-label", "Fullscreen");
   exportButton.addEventListener("click", shellActions.exportAllC);
+  adminButton.addEventListener("click", shellActions.openAdmin);
   fullscreenButton.addEventListener("click", shellActions.toggleFullscreen);
-  actions.append(exportButton, fullscreenButton);
+  actions.append(exportButton);
+
+  if (currentUser.role === "admin") {
+    actions.append(adminButton);
+  }
+
+  actions.append(fullscreenButton);
 
   header.append(brand, nav, actions);
   return header;
+}
+
+function renderProjectMenu(projects: readonly ProjectSummary[], activeBackendProjectId: string | null, shellActions: RenderActions): HTMLElement {
+  const menu = createElement("details", "asset-menu");
+  const activeProject = projects.find((project) => project.storageProjectId === activeBackendProjectId) ?? projects[0] ?? null;
+  const summary = createTextElement("summary", `▣ ${activeProject?.name ?? "Project"} ▼`, "asset-menu-summary");
+  const body = createElement("div", "asset-menu-body");
+  menu.addEventListener("toggle", () => closeOtherAssetMenus(menu));
+
+  if (projects.length === 0) {
+    body.append(createTextElement("span", "No projects", "asset-menu-empty"));
+  } else {
+    for (const project of projects) {
+      const button = createTextElement(
+        "button",
+        project.name,
+        `asset-menu-item${project.storageProjectId === activeBackendProjectId ? " is-selected" : ""}`,
+      );
+      button.type = "button";
+      button.title = `${project.projectId} · ${project.ownerEmail}`;
+      button.addEventListener("click", () => {
+        shellActions.selectBackendProject(project.storageProjectId);
+        menu.open = false;
+      });
+      body.append(button);
+    }
+  }
+
+  menu.append(summary, body);
+  return menu;
 }
 
 function renderAssetMenu(
@@ -97,17 +145,7 @@ function renderAssetMenu(
   const body = createElement("div", "asset-menu-body");
   const createButton = createTextElement("button", createLabel, "asset-menu-item create");
   createButton.type = "button";
-  menu.addEventListener("toggle", () => {
-    if (!menu.open) {
-      return;
-    }
-
-    document.querySelectorAll<HTMLDetailsElement>(".asset-menu[open]").forEach((otherMenu) => {
-      if (otherMenu !== menu) {
-        otherMenu.open = false;
-      }
-    });
-  });
+  menu.addEventListener("toggle", () => closeOtherAssetMenus(menu));
   createButton.addEventListener("click", () => {
     actions.createAsset(kind);
     menu.open = false;
@@ -152,6 +190,18 @@ function renderAssetMenu(
   }
   menu.append(summary, body);
   return menu;
+}
+
+function closeOtherAssetMenus(menu: HTMLDetailsElement): void {
+  if (!menu.open) {
+    return;
+  }
+
+  document.querySelectorAll<HTMLDetailsElement>(".asset-menu[open]").forEach((otherMenu) => {
+    if (otherMenu !== menu) {
+      otherMenu.open = false;
+    }
+  });
 }
 
 function createAssetMenuActionButton(label: string, title: string, className = "asset-menu-action"): HTMLButtonElement {

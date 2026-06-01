@@ -53,7 +53,7 @@ function getLocalProjectSource(): string | null {
   }
 }
 
-function readPersistedProjectState(value: unknown): PersistedProjectState | null {
+export function readPersistedProjectState(value: unknown): PersistedProjectState | null {
   if (!isRecord(value)) {
     return null;
   }

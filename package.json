@@ -5,9 +5,16 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "node server/index.mjs",
+    "dev:full": "node server/index.mjs & vite",
+    "create-admin": "node server/create-admin.mjs",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.9.1"
   },
   "devDependencies": {
     "@types/node": "latest",
