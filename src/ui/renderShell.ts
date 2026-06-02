@@ -1,28 +1,19 @@
 import {
-  ChevronDown,
-  Copy,
   Download,
   Image,
   Maximize2,
   Music,
-  Pencil,
-  Plus,
-  Trash2,
   Upload,
   Volume2,
 } from "lucide";
-import type { AssetExplorerItem } from "../state/assetExplorerState.js";
-import type { AssetKind } from "../model/assets.js";
-import type { AppMode, AppStatus, AssetExplorerActions, RenderActions } from "./appTypes.js";
+import type { AppMode, AppStatus, RenderActions } from "./appTypes.js";
 import { appendChildren, createElement, createTextElement } from "./dom.js";
-import { createIcon, createIconLabel, type AppIcon } from "./icons.js";
+import { createIcon, type AppIcon } from "./icons.js";
 
 interface AppShellParts {
   mode: AppMode;
   status: AppStatus | null;
   toolbar: HTMLElement;
-  assetExplorerItems: AssetExplorerItem[];
-  assetExplorerActions: AssetExplorerActions;
   editorArea: HTMLElement;
   inspectorPanel: HTMLElement;
   previewStatusArea: HTMLElement;
@@ -31,7 +22,7 @@ interface AppShellParts {
 
 export function renderAppShell(parts: AppShellParts): HTMLElement[] {
   return [
-    renderHeader(parts.assetExplorerItems, parts.assetExplorerActions, parts.shellActions),
+    renderHeader(parts.mode, parts.shellActions),
     renderWorkspace(
       parts.mode,
       parts.toolbar,
@@ -61,11 +52,7 @@ export function renderPreviewStatusArea(ariaLabel: string): HTMLElement {
   return preview;
 }
 
-function renderHeader(
-  assetExplorerItems: readonly AssetExplorerItem[],
-  assetExplorerActions: AssetExplorerActions,
-  shellActions: RenderActions,
-): HTMLElement {
+function renderHeader(mode: AppMode, shellActions: RenderActions): HTMLElement {
   const header = createElement("header", "app-header");
   const brand = createElement("div", "brand");
   const logo = createElement("img", "brand-logo");
@@ -78,9 +65,9 @@ function renderHeader(
 
   const nav = createElement("nav", "asset-nav");
   nav.append(
-    renderAssetMenu("Sprites", Image, "sprite", "New Sprite", assetExplorerItems, assetExplorerActions),
-    renderAssetMenu("Music", Music, "music", "New Music", assetExplorerItems, assetExplorerActions),
-    renderAssetMenu("SFX", Volume2, "sfx", "New SFX", assetExplorerItems, assetExplorerActions),
+    createModeButton(Image, "Sprites", "sprites", mode, shellActions),
+    createModeButton(Music, "Music", "music", mode, shellActions),
+    createModeButton(Volume2, "SFX", "sfx", mode, shellActions),
   );
 
   const actions = createElement("div", "header-actions");
@@ -99,78 +86,12 @@ function renderHeader(
   return header;
 }
 
-function renderAssetMenu(
-  label: string,
-  icon: AppIcon,
-  kind: AssetKind,
-  createLabel: string,
-  items: readonly AssetExplorerItem[],
-  actions: AssetExplorerActions,
-): HTMLElement {
-  const menu = createElement("details", "asset-menu");
-  const summary = createElement("summary", "asset-menu-summary");
-  summary.append(createIcon(icon), document.createTextNode(label), createIcon(ChevronDown, "lucide-icon asset-menu-chevron"));
-  const body = createElement("div", "asset-menu-body");
-  const createButton = createElement("button", "asset-menu-item create");
-  createButton.append(createIconLabel(Plus, createLabel));
-  createButton.type = "button";
-  menu.addEventListener("toggle", () => closeOtherAssetMenus(menu));
-  createButton.addEventListener("click", () => {
-    actions.createAsset(kind);
-    menu.open = false;
-  });
-  body.append(createButton, createElement("hr"));
+function createModeButton(icon: AppIcon, label: string, mode: AppMode, activeMode: AppMode, actions: RenderActions): HTMLButtonElement {
+  const button = createHeaderButton(icon, label, `Open ${label}`, `header-mode-button${activeMode === mode ? " is-active" : ""}`);
+  button.type = "button";
+  button.addEventListener("click", () => actions.openMode(mode));
 
-  const groupItems = items.filter((item) => item.kind === kind);
-  if (groupItems.length === 0) {
-    body.append(createTextElement("span", "No assets", "asset-menu-empty"));
-  } else {
-    for (const item of groupItems) {
-      const row = createElement("div", "asset-menu-row");
-      const button = createTextElement("button", item.name, `asset-menu-item${item.isSelected ? " is-selected" : ""}`);
-      const renameButton = createAssetMenuActionButton(Pencil, "Rename asset");
-      const duplicateButton = createAssetMenuActionButton(Copy, "Duplicate asset");
-      const deleteButton = createAssetMenuActionButton(Trash2, "Delete asset", "asset-menu-action danger");
-      button.type = "button";
-      button.title = item.name;
-      button.addEventListener("click", () => {
-        actions.selectAsset(kind, item.id);
-        menu.open = false;
-      });
-      renameButton.addEventListener("click", () => {
-        const name = window.prompt("Rename asset", item.name);
-
-        if (name !== null) {
-          actions.renameAsset(kind, item.id, name);
-          menu.open = false;
-        }
-      });
-      duplicateButton.addEventListener("click", () => {
-        actions.duplicateAsset(kind, item.id);
-        menu.open = false;
-      });
-      deleteButton.addEventListener("click", () => {
-        actions.deleteAsset(kind, item.id);
-        menu.open = false;
-      });
-      row.append(button, renameButton, duplicateButton, deleteButton);
-      body.append(row);
-    }
-  }
-  menu.append(summary, body);
-  return menu;
-}
-
-function closeOtherAssetMenus(menu: HTMLDetailsElement): void {
-  if (!menu.open) {
-    return;
-  }
-
-  document.querySelectorAll<HTMLDetailsElement>(".asset-menu[open]").forEach((otherMenu) => {
-    if (otherMenu !== menu) {
-      otherMenu.open = false;
-    }
-  });
+  return button;
 }
 
 function createHeaderButton(icon: AppIcon, label: string | null, title: string, className = "header-action-button"): HTMLButtonElement {
@@ -183,16 +104,6 @@ function createHeaderButton(icon: AppIcon, label: string | null, title: string, 
 
   button.title = title;
   button.setAttribute("aria-label", title);
-
-  return button;
-}
-
-function createAssetMenuActionButton(icon: AppIcon, title: string, className = "asset-menu-action"): HTMLButtonElement {
-  const button = createElement("button", className);
-  button.type = "button";
-  button.title = title;
-  button.setAttribute("aria-label", title);
-  button.append(createIcon(icon));
 
   return button;
 }

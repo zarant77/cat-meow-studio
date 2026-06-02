@@ -1,5 +1,4 @@
 import type { EditorState } from "../state/editorState.js";
-import { getAssetExplorerItems } from "../state/assetExplorerState.js";
 import type { MusicEditorState } from "../state/musicEditorState.js";
 import type { AppActions, AppMode, AppStatus, ModeSurface, MusicRenderActions, RenderActions } from "./appTypes.js";
 import { renderMusicPreview, renderMusicWorkspaceSurface } from "./renderMusicEditor.js";
@@ -31,8 +30,6 @@ export function renderApp(
       mode,
       status,
       toolbar: surface.assetPanel,
-      assetExplorerItems: getAssetExplorerItems(),
-      assetExplorerActions: actions.assets,
       editorArea: surface.editorArea,
       inspectorPanel: surface.inspectorPanel,
       previewStatusArea: surface.previewStatusArea,

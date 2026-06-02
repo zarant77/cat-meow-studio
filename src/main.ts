@@ -6,7 +6,7 @@ import { exportSoundJson } from "./export/exportSoundJson.js";
 import { importMusicJson } from "./import/importMusicJson.js";
 import { importSpriteJson } from "./import/importSpriteJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
-import type { AssetId, AssetKind, ProjectAsset } from "./model/assets.js";
+import type { AssetKind, ProjectAsset } from "./model/assets.js";
 import { createMusicProjectAsset, createSfxProjectAsset } from "./model/assetAdapters.js";
 import {
   addCommand,
@@ -48,8 +48,6 @@ import {
   updateSelectedMusicInstrument,
   updateSelectedMusicNote,
 } from "./state/musicEditorState.js";
-import { clearAutosavedProject } from "./storage/localAutosave.js";
-import { clearLocalProjectState, loadLocalProjectState, saveLocalProjectState } from "./storage/localProjectPersistence.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
 import {
   canRedoSpriteEditor,
@@ -62,21 +60,13 @@ import {
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
 import {
-  deleteProjectAsset,
-  duplicateProjectAsset,
   findProjectAsset,
   getFirstProjectAsset,
   getProject,
-  getSelectedAssetIds,
   getSelectedProjectAssetId,
-  renameProjectAsset,
-  replaceProjectState,
-  selectProjectAsset,
-  setSelectedProjectAsset,
-  subscribeProjectState,
+  resetProjectState,
   upsertCurrentProjectAsset,
 } from "./state/projectState.js";
-import { getAssetExplorerItems } from "./state/assetExplorerState.js";
 import { downloadFile } from "./utils/downloadFile.js";
 import { readTextFile } from "./utils/readTextFile.js";
 
@@ -91,8 +81,13 @@ const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = "sfx";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
-let projectStateSubscription: (() => void) | null = null;
-let saveProjectTimeoutId: number | null = null;
+const legacyProjectStorageKeys = [
+  "cat-meow-studio:project",
+  "cat-meow:sound-project",
+  "cat-meow:sfx-project",
+  "cat-meow:music-project",
+  "cat-meow:active-mode",
+] as const;
 
 const actions: RenderActions = {
   undo() {
@@ -185,14 +180,16 @@ const actions: RenderActions = {
       render();
     }
   },
+  openMode(mode) {
+    createFreshSceneForMode(mode);
+  },
   clearSavedProject() {
-    if (!window.confirm("Clear the saved local Cat Meow Studio project? The current session will stay open.")) {
+    if (!window.confirm("Clear old local Cat Meow Studio browser storage? The current session will stay open.")) {
       return;
     }
 
-    clearAutosavedProject();
-    clearLocalProjectState();
-    showStatus("Local autosave cleared.", "success");
+    clearLegacyProjectStorage();
+    showStatus("Old browser storage cleared.", "success");
   },
   exportCurrentJson() {
     exportJsonForMode(activeMode);
@@ -304,23 +301,6 @@ const musicActions: MusicRenderActions = {
 const appActions: AppActions = {
   shell: actions,
   music: musicActions,
-  assets: {
-    createAsset(kind) {
-      createAsset(kind);
-    },
-    selectAsset(kind, id) {
-      selectAsset(kind, id);
-    },
-    renameAsset(kind, id, name) {
-      renameAsset(kind, id, name);
-    },
-    duplicateAsset(kind, id) {
-      duplicateAsset(kind, id);
-    },
-    deleteAsset(kind, id) {
-      deleteAsset(kind, id);
-    },
-  },
 };
 
 function render(): void {
@@ -338,154 +318,30 @@ function render(): void {
   );
 }
 
-function createAsset(kind: AssetKind): void {
-  const assetId = createUniqueAssetId(kind);
-
-  if (kind === "sprite") {
-    setSelectedProjectAsset("sprite", assetId);
-    createNewSpriteEditorAsset(assetId);
+function createFreshSceneForMode(mode: AppMode): void {
+  if (mode === "sprites") {
+    createNewSpriteEditorAsset("sprite");
     switchMode("sprites");
     return;
   }
 
-  if (kind === "music") {
-    setSelectedProjectAsset("music", assetId);
+  if (mode === "music") {
     createNewMusicProject();
-    updateMusicProject({ id: assetId });
-    renderAfterMusicChange();
+    updateMusicProject({ id: "music" });
     switchMode("music");
-    return;
-  }
-
-  setSelectedProjectAsset("sfx", assetId);
-  createBlankProject();
-  updateProjectId(assetId);
-  saveCurrentProject();
-  switchMode("sfx");
-}
-
-function selectAsset(kind: AssetKind, id: AssetId): void {
-  const asset = selectProjectAsset(kind, id);
-
-  if (asset === null) {
-    return;
-  }
-
-  loadProjectAsset(asset);
-}
-
-function renameAsset(kind: AssetKind, id: AssetId, name: string): void {
-  const wasSelected = getSelectedProjectAssetId(kind) === id;
-  const renamedAsset = renameProjectAsset(kind, id, name);
-
-  if (renamedAsset === null) {
-    return;
-  }
-
-  if (wasSelected) {
-    loadProjectAsset(renamedAsset);
-    return;
-  }
-
-  render();
-}
-
-function duplicateAsset(kind: AssetKind, id: AssetId): void {
-  const duplicatedAsset = duplicateProjectAsset(kind, id);
-
-  if (duplicatedAsset === null) {
-    return;
-  }
-
-  loadProjectAsset(duplicatedAsset);
-}
-
-function deleteAsset(kind: AssetKind, id: AssetId): void {
-  const asset = findProjectAsset(kind, id);
-
-  if (asset === null || !window.confirm(`Delete ${asset.name}?`)) {
-    return;
-  }
-
-  const wasSelected = getSelectedProjectAssetId(kind) === id;
-  deleteProjectAsset(kind, id);
-
-  if (!wasSelected) {
     render();
     return;
   }
 
-  const fallbackAsset = getFirstProjectAsset(kind);
-
-  if (fallbackAsset !== null) {
-    loadProjectAsset(fallbackAsset);
-    return;
-  }
-
-  createAsset(kind);
-}
-
-function loadProjectAsset(asset: ProjectAsset): void {
-  selectProjectAsset(asset.kind, asset.id);
-  applyProjectAssetToEditor(asset);
-
-  if (asset.kind === "sprite") {
-    switchMode("sprites");
-    return;
-  }
-
-  if (asset.kind === "music") {
-    saveCurrentMusicProject();
-    switchMode("music");
-    return;
-  }
-
-  saveCurrentProject();
+  createBlankProject();
+  updateProjectId("sound");
   switchMode("sfx");
 }
 
 function switchMode(mode: AppMode): void {
-  const selectedAsset = getSelectedProjectAssetForMode(mode);
-
-  if (selectedAsset !== null) {
-    applyProjectAssetToEditor(selectedAsset);
-  }
-
   activeMode = mode;
-  scheduleLocalProjectSave();
   preview.stop();
   render();
-}
-
-function createUniqueAssetId(kind: AssetKind): AssetId {
-  const baseId = getAssetBaseId(kind);
-  const existingIds = new Set(getAssetExplorerItems().filter((asset) => asset.kind === kind).map((asset) => asset.id));
-
-  if (!existingIds.has(baseId)) {
-    return baseId;
-  }
-
-  let suffix = 2;
-  let candidate = `${baseId}_${suffix}`;
-
-  while (existingIds.has(candidate)) {
-    suffix += 1;
-    candidate = `${baseId}_${suffix}`;
-  }
-
-  return candidate;
-}
-
-function getAssetBaseId(kind: AssetKind): AssetId {
-  if (kind === "sprite") {
-    return "sprite";
-  }
-
-  if (kind === "music") {
-    return "music";
-  }
-
-  return "sound";
 }
 
 function createJsonFileInput(): HTMLInputElement {
@@ -664,28 +520,6 @@ function getSelectedProjectAssetForMode(mode: AppMode): ProjectAsset | null {
   return getFirstProjectAsset(kind);
 }
 
-function applyProjectAssetToEditor(asset: ProjectAsset): void {
-  if (asset.kind === "sprite") {
-    replaceSpriteEditorAsset(asset.sprite);
-    return;
-  }
-
-  if (asset.kind === "music") {
-    replaceCurrentMusicProject(asset.music, { recordHistory: false });
-    return;
-  }
-
-  replaceCurrentProject(asset.sfx, { recordHistory: false });
-}
-
-function syncSpriteEditorFromSelectedAsset(): void {
-  const selectedAsset = getSelectedProjectAssetForMode("sprites");
-
-  if (selectedAsset?.kind === "sprite") {
-    replaceSpriteEditorAsset(selectedAsset.sprite);
-  }
-}
-
 function modeToAssetKind(mode: AppMode): AssetKind {
   if (mode === "sprites") {
     return "sprite";
@@ -694,47 +528,9 @@ function modeToAssetKind(mode: AppMode): AssetKind {
   return mode;
 }
 
-function persistLocalProject(): void {
-  saveLocalProjectState({
-    project: getProject(),
-    selectedAssetIds: getSelectedAssetIds(),
-    activeMode,
-  });
-}
-
-function scheduleLocalProjectSave(): void {
-  if (saveProjectTimeoutId !== null) {
-    window.clearTimeout(saveProjectTimeoutId);
-  }
-
-  saveProjectTimeoutId = window.setTimeout(() => {
-    saveProjectTimeoutId = null;
-    persistLocalProject();
-  }, 250);
-}
-
 function boot(): void {
-  const savedProject = loadLocalProjectState();
-
-  if (savedProject !== null) {
-    replaceProjectState(savedProject.project, savedProject.selectedAssetIds, { emit: false });
-    activeMode = savedProject.activeMode;
-
-    const selectedAsset = getSelectedProjectAssetForMode(savedProject.activeMode);
-
-    if (selectedAsset !== null) {
-      selectProjectAsset(selectedAsset.kind, selectedAsset.id);
-      applyProjectAssetToEditor(selectedAsset);
-    }
-  } else {
-    syncCurrentAssets();
-  }
-
-  if (projectStateSubscription === null) {
-    projectStateSubscription = subscribeProjectState(scheduleLocalProjectSave);
-  }
-
-  persistLocalProject();
+  clearLegacyProjectStorage();
+  resetProjectState({ emit: false });
   render();
 }
 
@@ -798,6 +594,16 @@ function kindToMode(kind: AssetKind): AppMode {
   }
 
   return kind;
+}
+
+function clearLegacyProjectStorage(): void {
+  try {
+    for (const key of legacyProjectStorageKeys) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    return;
+  }
 }
 
 function showStatus(message: string, tone: AppStatus["tone"]): void {

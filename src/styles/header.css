@@ -36,11 +36,7 @@
   min-width: 0;
 }
 
-.asset-menu {
-  position: relative;
-}
-
-.asset-menu-summary,
+.header-mode-button,
 .header-action-button {
   display: inline-flex;
   align-items: center;
@@ -59,11 +55,8 @@
   text-shadow: 0 1px 1px rgba(0, 0, 0, 0.72);
 }
 
-.asset-menu-summary::-webkit-details-marker {
-  display: none;
-}
-
-.asset-menu[open] .asset-menu-summary,
+.header-mode-button:hover,
+.header-mode-button.is-active,
 .header-action-button:hover {
   border-color: var(--color-border-strong);
   background: var(--color-accent);
@@ -71,93 +64,13 @@
   text-shadow: none;
 }
 
+.header-mode-button {
+  min-width: 118px;
+}
+
 .header-action-button.icon-only {
   width: 38px;
   padding: 0;
-}
-
-.asset-menu-chevron {
-  width: 14px;
-  height: 14px;
-  margin-left: 1px;
-}
-
-.asset-menu-body {
-  position: absolute;
-  z-index: 10;
-  top: calc(100% + 6px);
-  right: 0;
-  display: grid;
-  gap: 4px;
-  width: 220px;
-  max-height: min(70vh, 520px);
-  padding: 8px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: rgba(16, 17, 20, 0.98);
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.42);
-  overflow-y: auto;
-}
-
-.asset-menu-body hr {
-  width: 100%;
-  border: 0;
-  border-top: 1px solid var(--color-border);
-}
-
-.asset-menu-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) repeat(3, 28px);
-  gap: 3px;
-  min-width: 0;
-}
-
-.asset-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  min-height: 30px;
-  padding: 0 9px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  font-weight: 900;
-  text-align: left;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.asset-menu-action {
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  min-height: 30px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.07);
-  color: var(--color-text);
-  font-size: 0.74rem;
-  font-weight: 900;
-}
-
-.asset-menu-item:hover,
-.asset-menu-item.is-selected,
-.asset-menu-action:hover {
-  background: var(--color-accent);
-  color: #1b1509;
-}
-
-.asset-menu-action.danger:hover {
-  background: var(--color-danger-soft);
-  color: var(--color-danger);
-}
-
-.asset-menu-empty {
-  color: var(--color-text-soft);
-  font-size: 0.78rem;
-  padding: 5px 8px;
 }
 
 @media (max-width: 720px) {

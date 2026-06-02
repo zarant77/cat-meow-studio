@@ -1,5 +1,4 @@
 import type { SoundCommandPatch } from "../state/editorState.js";
-import type { AssetId, AssetKind } from "../model/assets.js";
 import type { MusicInstrumentPatch, MusicNotePatch, MusicProjectPatch } from "../state/musicEditorState.js";
 
 export type AppMode = "music" | "sfx" | "sprites";
@@ -13,6 +12,7 @@ export interface RenderActions {
   canUndo: () => boolean;
   canRedo: () => boolean;
   createNewProject: () => void;
+  openMode: (mode: AppMode) => void;
   clearSavedProject: () => void;
   exportCurrentJson: () => void;
   importJson: () => void;
@@ -44,15 +44,6 @@ export interface MusicRenderActions {
 export interface AppActions {
   shell: RenderActions;
   music: MusicRenderActions;
-  assets: AssetExplorerActions;
-}
-
-export interface AssetExplorerActions {
-  createAsset: (kind: AssetKind) => void;
-  selectAsset: (kind: AssetKind, id: AssetId) => void;
-  renameAsset: (kind: AssetKind, id: AssetId, name: string) => void;
-  duplicateAsset: (kind: AssetKind, id: AssetId) => void;
-  deleteAsset: (kind: AssetKind, id: AssetId) => void;
 }
 
 export interface AppStatus {
