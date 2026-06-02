@@ -12,8 +12,11 @@ export function drawPrimitive(ctx: CanvasRenderingContext2D, primitive: Primitiv
   }
 
   if (primitive.kind === "circle") {
+    const radiusX = primitive.w / 2;
+    const radiusY = primitive.h > 0 ? primitive.h / 2 : primitive.w / 2;
+
     ctx.beginPath();
-    ctx.arc(0, 0, primitive.w, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, radiusX, radiusY, 0, 0, Math.PI * 2);
     ctx.fill();
   }
 

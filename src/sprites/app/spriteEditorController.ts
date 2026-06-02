@@ -996,15 +996,6 @@ export class SpriteEditorController {
   }
 
   private getPrimitiveBounds(primitive: Primitive): PrimitiveBounds {
-    if (primitive.kind === "circle") {
-      return {
-        minX: primitive.x - primitive.w,
-        minY: primitive.y - primitive.w,
-        maxX: primitive.x + primitive.w,
-        maxY: primitive.y + primitive.w,
-      };
-    }
-
     return {
       minX: primitive.x - primitive.w / 2,
       minY: primitive.y - primitive.h / 2,

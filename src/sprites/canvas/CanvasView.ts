@@ -22,13 +22,7 @@ export type CanvasViewCallbacks = {
   onPickColor: (color: string) => void;
 };
 
-type InteractionMode =
-  | "idle"
-  | "creatingPrimitive"
-  | "draggingPrimitives"
-  | "draggingSelection"
-  | "rotatingSelection"
-  | "scalingSelection";
+type InteractionMode = "idle" | "creatingPrimitive" | "draggingPrimitives" | "draggingSelection" | "rotatingSelection" | "scalingSelection";
 
 type RectBounds = {
   minX: number;
@@ -46,6 +40,7 @@ type TransformStart = {
   pivot: Point;
   angle: number;
   distance: number;
+  scaleHandle: ScaleHandleKind | null;
   primitives: TransformPrimitiveStart[];
 };
 
@@ -65,7 +60,10 @@ type CanvasCursor =
   | "nwse-resize"
   | "nesw-resize";
 
+type ScaleHandleKind = "left" | "right" | "top" | "bottom" | "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
+
 type ScaleHandleHit = {
+  kind: ScaleHandleKind;
   cursor: CanvasCursor;
 };
 
@@ -343,8 +341,6 @@ export class CanvasView {
   }
 
   private beginTransform(point: Point, hitNodeIds: string[]): void {
-    this.resetInteraction();
-
     if (this.state.selectedNodeIds.length === 0 && hitNodeIds.length > 0) {
       const firstHitNodeId = resolveCanvasSelectableNode(hitNodeIds[0], this.state.nodes);
 
@@ -352,6 +348,14 @@ export class CanvasView {
         this.state.selectedNodeIds = [firstHitNodeId];
       }
     }
+
+    const scaleHandle = this.state.activeTool === "scale" ? this.hitTestScaleHandle(point) : null;
+
+    if (this.state.activeTool === "scale" && !scaleHandle) {
+      return;
+    }
+
+    this.resetInteraction();
 
     const selectedStarts = getSelectedEditablePrimitiveStarts(this.state);
 
@@ -369,6 +373,7 @@ export class CanvasView {
       x: (bounds.minX + bounds.maxX) / 2,
       y: (bounds.minY + bounds.maxY) / 2,
     };
+
     const dx = point.x - pivot.x;
     const dy = point.y - pivot.y;
 
@@ -376,8 +381,13 @@ export class CanvasView {
       pivot,
       angle: Math.atan2(dy, dx),
       distance: Math.hypot(dx, dy),
-      primitives: selectedStarts.map((start) => ({ nodeId: start.nodeId, primitive: { ...start.primitive } })),
+      scaleHandle: scaleHandle?.kind ?? null,
+      primitives: selectedStarts.map((start) => ({
+        nodeId: start.nodeId,
+        primitive: { ...start.primitive },
+      })),
     };
+
     this.interactionMode = this.state.activeTool === "rotate" ? "rotatingSelection" : "scalingSelection";
     this.activeInteractionCursor = this.getTransformCursor(point);
     this.hasTransformedSelection = false;
@@ -544,9 +554,7 @@ export class CanvasView {
   }
 
   private canDragSelectionFromHits(hitNodeIds: readonly string[], selectedNodeIds: readonly string[]): boolean {
-    const selectedEditableIds = new Set(
-      getSelectedEditablePrimitiveStarts(this.state, selectedNodeIds).map((start) => start.nodeId),
-    );
+    const selectedEditableIds = new Set(getSelectedEditablePrimitiveStarts(this.state, selectedNodeIds).map((start) => start.nodeId));
 
     return hitNodeIds.some((nodeId) => selectedEditableIds.has(nodeId));
   }
@@ -636,26 +644,11 @@ export class CanvasView {
   }
 
   private scaleSelection(point: Point): void {
-    if (!this.transformStart || this.transformStart.distance < 0.001) {
+    if (!this.transformStart?.scaleHandle) {
       return;
     }
 
-    const distance = Math.hypot(point.x - this.transformStart.pivot.x, point.y - this.transformStart.pivot.y);
-    const factor = distance / this.transformStart.distance;
-
-    if (!Number.isFinite(factor) || factor <= 0) {
-      return;
-    }
-
-    for (const start of this.transformStart.primitives) {
-      const nextW = Math.round(start.primitive.w * factor);
-      const nextH = Math.round(start.primitive.h * factor);
-
-      if (nextW < 1 || nextH < 1) {
-        return;
-      }
-    }
-
+    const handle = this.transformStart.scaleHandle;
     this.ensureTransformHistory();
 
     for (const start of this.transformStart.primitives) {
@@ -665,14 +658,15 @@ export class CanvasView {
         continue;
       }
 
-      primitive.x = Math.round(
-        this.transformStart.pivot.x + (start.primitive.x - this.transformStart.pivot.x) * factor,
-      );
-      primitive.y = Math.round(
-        this.transformStart.pivot.y + (start.primitive.y - this.transformStart.pivot.y) * factor,
-      );
-      primitive.w = Math.max(1, Math.round(start.primitive.w * factor));
-      primitive.h = Math.max(1, Math.round(start.primitive.h * factor));
+      const localPoint = toPrimitiveLocalPoint(point, start.primitive);
+
+      if (handleAffectsX(handle)) {
+        primitive.w = Math.max(1, Math.round(Math.abs(localPoint.x) * 2));
+      }
+
+      if (handleAffectsY(handle)) {
+        primitive.h = Math.max(1, Math.round(Math.abs(localPoint.y) * 2));
+      }
     }
 
     this.render();
@@ -819,27 +813,32 @@ export class CanvasView {
   }
 
   private hitTestScaleHandle(point: Point): ScaleHandleHit | null {
-    const bounds = this.getSelectedBounds();
+    const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
 
-    if (!bounds) {
+    if (selectedPrimitives.length !== 1) {
       return null;
     }
 
+    const primitive = selectedPrimitives[0].primitive;
     const radius = getSpriteHandleRadius(this.canvas);
-    const handles: Array<{ point: Point; cursor: CanvasCursor }> = [
-      { point: { x: bounds.minX, y: bounds.minY }, cursor: "nwse-resize" },
-      { point: { x: bounds.maxX, y: bounds.minY }, cursor: "nesw-resize" },
-      { point: { x: bounds.minX, y: bounds.maxY }, cursor: "nesw-resize" },
-      { point: { x: bounds.maxX, y: bounds.maxY }, cursor: "nwse-resize" },
-      { point: { x: bounds.minX, y: (bounds.minY + bounds.maxY) / 2 }, cursor: "ew-resize" },
-      { point: { x: bounds.maxX, y: (bounds.minY + bounds.maxY) / 2 }, cursor: "ew-resize" },
-      { point: { x: (bounds.minX + bounds.maxX) / 2, y: bounds.minY }, cursor: "ns-resize" },
-      { point: { x: (bounds.minX + bounds.maxX) / 2, y: bounds.maxY }, cursor: "ns-resize" },
+    const localPoint = toPrimitiveLocalPoint(point, primitive);
+    const halfW = primitive.w / 2;
+    const halfH = primitive.h / 2;
+
+    const handles: Array<{ kind: ScaleHandleKind; point: Point; cursor: CanvasCursor }> = [
+      { kind: "topLeft", point: { x: -halfW, y: -halfH }, cursor: "nwse-resize" },
+      { kind: "top", point: { x: 0, y: -halfH }, cursor: "ns-resize" },
+      { kind: "topRight", point: { x: halfW, y: -halfH }, cursor: "nesw-resize" },
+      { kind: "left", point: { x: -halfW, y: 0 }, cursor: "ew-resize" },
+      { kind: "right", point: { x: halfW, y: 0 }, cursor: "ew-resize" },
+      { kind: "bottomLeft", point: { x: -halfW, y: halfH }, cursor: "nesw-resize" },
+      { kind: "bottom", point: { x: 0, y: halfH }, cursor: "ns-resize" },
+      { kind: "bottomRight", point: { x: halfW, y: halfH }, cursor: "nwse-resize" },
     ];
 
     for (const handle of handles) {
-      if (getDistance(point, handle.point) <= radius) {
-        return { cursor: handle.cursor };
+      if (getDistance(localPoint, handle.point) <= radius) {
+        return { kind: handle.kind, cursor: handle.cursor };
       }
     }
 
@@ -934,17 +933,41 @@ export class CanvasView {
     this.ctx.lineWidth = 2 / this.getCanvasScale();
     this.ctx.setLineDash([4 / this.getCanvasScale(), 3 / this.getCanvasScale()]);
 
-    if (primitive.kind === "circle") {
+    this.ctx.strokeRect(-primitive.w / 2 - inset, -primitive.h / 2 - inset, primitive.w + inset * 2, primitive.h + inset * 2);
+
+    if (this.state.activeTool === "scale") {
+      this.drawScaleHandles(primitive);
+    }
+
+    this.ctx.restore();
+  }
+
+  private drawScaleHandles(primitive: Primitive): void {
+    const radius = getSpriteHandleRadius(this.canvas);
+    const halfW = primitive.w / 2;
+    const halfH = primitive.h / 2;
+
+    const handles: Point[] = [
+      { x: -halfW, y: -halfH },
+      { x: 0, y: -halfH },
+      { x: halfW, y: -halfH },
+      { x: -halfW, y: 0 },
+      { x: halfW, y: 0 },
+      { x: -halfW, y: halfH },
+      { x: 0, y: halfH },
+      { x: halfW, y: halfH },
+    ];
+
+    this.ctx.save();
+    this.ctx.fillStyle = "#2563eb";
+    this.ctx.strokeStyle = "#ffffff";
+    this.ctx.lineWidth = 1 / this.getCanvasScale();
+
+    for (const handle of handles) {
       this.ctx.beginPath();
-      this.ctx.arc(0, 0, primitive.w + inset, 0, Math.PI * 2);
+      this.ctx.rect(handle.x - radius / 2, handle.y - radius / 2, radius, radius);
+      this.ctx.fill();
       this.ctx.stroke();
-    } else {
-      this.ctx.strokeRect(
-        -primitive.w / 2 - inset,
-        -primitive.h / 2 - inset,
-        primitive.w + inset * 2,
-        primitive.h + inset * 2,
-      );
     }
 
     this.ctx.restore();
@@ -1019,10 +1042,6 @@ export class CanvasView {
 }
 
 function isDrawablePrimitive(primitive: Primitive): boolean {
-  if (primitive.kind === "circle") {
-    return primitive.w > 0;
-  }
-
   return primitive.w > 0 && primitive.h > 0;
 }
 
@@ -1136,7 +1155,14 @@ function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
   const localPoint = toPrimitiveLocalPoint(point, primitive);
 
   if (primitive.kind === "circle") {
-    return Math.hypot(localPoint.x, localPoint.y) <= primitive.w;
+    const radiusX = primitive.w / 2;
+    const radiusY = primitive.h / 2;
+
+    if (radiusX <= 0 || radiusY <= 0) {
+      return false;
+    }
+
+    return (localPoint.x * localPoint.x) / (radiusX * radiusX) + (localPoint.y * localPoint.y) / (radiusY * radiusY) <= 1;
   }
 
   return (
@@ -1182,15 +1208,6 @@ function getPrimitivesBounds(primitives: Primitive[]): RectBounds | null {
 }
 
 function getPrimitiveBounds(primitive: Primitive): RectBounds {
-  if (primitive.kind === "circle") {
-    return {
-      minX: primitive.x - primitive.w,
-      minY: primitive.y - primitive.w,
-      maxX: primitive.x + primitive.w,
-      maxY: primitive.y + primitive.w,
-    };
-  }
-
   return {
     minX: primitive.x - primitive.w / 2,
     minY: primitive.y - primitive.h / 2,
@@ -1222,4 +1239,26 @@ function normalizeBounds(start: Point, end: Point): RectBounds {
 
 function boundsIntersect(left: RectBounds, right: RectBounds): boolean {
   return left.minX <= right.maxX && left.maxX >= right.minX && left.minY <= right.maxY && left.maxY >= right.minY;
+}
+
+function handleAffectsX(handle: ScaleHandleKind): boolean {
+  return (
+    handle === "left" ||
+    handle === "right" ||
+    handle === "topLeft" ||
+    handle === "topRight" ||
+    handle === "bottomLeft" ||
+    handle === "bottomRight"
+  );
+}
+
+function handleAffectsY(handle: ScaleHandleKind): boolean {
+  return (
+    handle === "top" ||
+    handle === "bottom" ||
+    handle === "topLeft" ||
+    handle === "topRight" ||
+    handle === "bottomLeft" ||
+    handle === "bottomRight"
+  );
 }
