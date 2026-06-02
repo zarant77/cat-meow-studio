@@ -50,6 +50,16 @@
   grid-template-columns: repeat(2, 38px);
 }
 
+.toolbar .sprite-color-tool-section,
+.toolbar .sprite-color-control,
+.toolbar .sprite-color-hex-input {
+  grid-column: 1 / -1;
+}
+
+.toolbar .sprite-color-control {
+  width: 83px;
+}
+
 .toolbar .sprite-button,
 .toolbar .sprite-icon-button {
   width: 38px;

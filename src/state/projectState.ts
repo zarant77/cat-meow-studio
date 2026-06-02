@@ -1,12 +1,4 @@
-import type {
-  AssetId,
-  AssetKind,
-  Project,
-  ProjectAsset,
-  SpriteAssetData,
-  SpritePaletteColor,
-  SpriteProjectAsset,
-} from "../model/assets.js";
+import type { AssetId, AssetKind, Project, ProjectAsset } from "../model/assets.js";
 import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 
 export type SelectedAssetIds = Record<AssetKind, AssetId | null>;
@@ -16,7 +8,6 @@ type ProjectStateListener = () => void;
 const initialProject: Project = {
   id: "cat-meow-studio",
   name: "Cat Meow Studio",
-  spritePalette: createDefaultSpritePalette(),
   assets: [],
 };
 
@@ -38,7 +29,6 @@ export function subscribeProjectState(listener: ProjectStateListener): () => voi
 
 export function replaceProjectState(project: Project, selectedIds: SelectedAssetIds, options: { emit?: boolean } = {}): void {
   projectState = cloneProject(project);
-  ensureAllSpriteAssetColorsInPalette();
   selectedAssetIds = {
     sprite: selectedIds.sprite,
     music: selectedIds.music,
@@ -79,7 +69,6 @@ export function getProjectAssets(): ProjectAsset[] {
 }
 
 export function upsertProjectAsset(asset: ProjectAsset): void {
-  ensureSpriteAssetColorsInPalette(asset);
   const existingIndex = projectState.assets.findIndex((candidate) => candidate.kind === asset.kind && candidate.id === asset.id);
   const existingAsset = existingIndex === -1 ? null : projectState.assets[existingIndex];
   const nextAsset: ProjectAsset = {
@@ -113,7 +102,6 @@ export function upsertProjectAsset(asset: ProjectAsset): void {
 }
 
 export function upsertCurrentProjectAsset(asset: ProjectAsset): void {
-  ensureSpriteAssetColorsInPalette(asset);
   const selectedAssetId = selectedAssetIds[asset.kind];
   const existingIndex = projectState.assets.findIndex((candidate) => {
     if (candidate.kind !== asset.kind) {
@@ -258,178 +246,10 @@ export function getProjectAssetSummary(): Array<Pick<ProjectAsset, "id" | "kind"
   }));
 }
 
-export function getSpritePalette(): SpritePaletteColor[] {
-  return getCurrentSpritePalette().map(cloneSpritePaletteColor);
-}
-
-export function addSpritePaletteColor(): SpritePaletteColor | null {
-  const asset = getSelectedSpriteAsset();
-
-  if (asset === null || asset.sprite.palette.length >= 256) {
-    return null;
-  }
-
-  const nextColor: SpritePaletteColor = {
-    name: toUniquePaletteName("Color", asset.sprite.palette),
-    rgba: toUniquePaletteRgba("#ffffffff", asset.sprite.palette),
-  };
-  updateSelectedSpriteAsset({
-    ...asset.sprite,
-    palette: [...asset.sprite.palette, nextColor],
-  });
-  emitProjectStateChanged();
-
-  return cloneSpritePaletteColor(nextColor);
-}
-
-export function renameSpritePaletteColor(index: number, name: string): SpritePaletteColor | null {
-  const asset = getSelectedSpriteAsset();
-  const color = asset?.sprite.palette[index];
-  const nextName = name.trim();
-
-  if (asset === null || color === undefined || nextName === "") {
-    return null;
-  }
-
-  const nextColor = {
-    ...color,
-    name: nextName,
-  };
-
-  updateSelectedSpriteAsset({
-    ...asset.sprite,
-    palette: asset.sprite.palette.map((candidate, candidateIndex) => (candidateIndex === index ? nextColor : candidate)),
-  });
-  emitProjectStateChanged();
-
-  return cloneSpritePaletteColor(nextColor);
-}
-
-export function updateSpritePaletteColor(index: number, rgba: string): SpritePaletteColor | null {
-  const asset = getSelectedSpriteAsset();
-  const color = asset?.sprite.palette[index];
-  const nextRgba = normalizeRgba(rgba);
-
-  if (asset === null || color === undefined || nextRgba === null) {
-    return null;
-  }
-
-  const nextColor = {
-    ...color,
-    rgba: nextRgba,
-  };
-
-  updateSelectedSpriteAsset({
-    ...asset.sprite,
-    palette: asset.sprite.palette.map((candidate, candidateIndex) => (candidateIndex === index ? nextColor : candidate)),
-    nodes: replaceNodeColor(asset.sprite.nodes, color.rgba, rgbaToPrimitiveColor(nextRgba)),
-  });
-  emitProjectStateChanged();
-
-  return cloneSpritePaletteColor(nextColor);
-}
-
-export function deleteSpritePaletteColor(index: number): boolean {
-  const asset = getSelectedSpriteAsset();
-
-  if (asset === null || index < 0 || index >= asset.sprite.palette.length || isSpritePaletteColorUsed(index)) {
-    return false;
-  }
-
-  updateSelectedSpriteAsset({
-    ...asset.sprite,
-    palette: asset.sprite.palette.filter((_, candidateIndex) => candidateIndex !== index),
-  });
-  emitProjectStateChanged();
-
-  return true;
-}
-
-export function isSpritePaletteColorUsed(index: number): boolean {
-  const asset = getSelectedSpriteAsset();
-  const color = asset?.sprite.palette[index];
-
-  if (asset === null || color === undefined) {
-    return false;
-  }
-
-  const hasDuplicateColor = asset.sprite.palette.some((candidate, candidateIndex) => {
-    return candidateIndex !== index && candidate.rgba === color.rgba;
-  });
-
-  if (hasDuplicateColor) {
-    return false;
-  }
-
-  return isColorUsedInNodes(asset.sprite.nodes, color.rgba);
-}
-
 function cloneProject(project: Project): Project {
   return {
     ...project,
-    spritePalette: project.spritePalette.map(cloneSpritePaletteColor),
     assets: project.assets.map(cloneProjectAsset),
-  };
-}
-
-function cloneSpritePaletteColor(color: SpritePaletteColor): SpritePaletteColor {
-  return {
-    name: color.name,
-    rgba: color.rgba,
-  };
-}
-
-function cloneSpriteProjectAsset(asset: SpriteProjectAsset): SpriteProjectAsset {
-  return {
-    ...asset,
-    sprite: {
-      ...asset.sprite,
-      palette: asset.sprite.palette.map(cloneSpritePaletteColor),
-      nodes: asset.sprite.nodes.map(cloneSceneNode),
-    },
-  };
-}
-
-function getSelectedSpriteAsset(): SpriteProjectAsset | null {
-  const selectedId = selectedAssetIds.sprite;
-  const asset =
-    selectedId === null
-      ? (projectState.assets.find((candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite") ?? null)
-      : (projectState.assets.find(
-          (candidate): candidate is SpriteProjectAsset => candidate.kind === "sprite" && candidate.id === selectedId,
-        ) ?? null);
-
-  if (asset === null) {
-    return null;
-  }
-
-  return cloneSpriteProjectAsset(asset);
-}
-
-function updateSelectedSpriteAsset(sprite: SpriteAssetData): void {
-  const selectedId = selectedAssetIds.sprite;
-
-  if (selectedId === null) {
-    return;
-  }
-
-  projectState = {
-    ...projectState,
-    assets: projectState.assets.map((asset) => {
-      if (asset.kind !== "sprite" || asset.id !== selectedId) {
-        return asset;
-      }
-
-      return {
-        ...asset,
-        sprite: {
-          ...sprite,
-          palette: sprite.palette.map(cloneSpritePaletteColor),
-          nodes: sprite.nodes.map(cloneSceneNode),
-        },
-        updatedAt: new Date().toISOString(),
-      };
-    }),
   };
 }
 
@@ -439,7 +259,6 @@ function cloneProjectAsset(asset: ProjectAsset): ProjectAsset {
       ...asset,
       sprite: {
         ...asset.sprite,
-        palette: asset.sprite.palette.map(cloneSpritePaletteColor),
         nodes: asset.sprite.nodes.map(cloneSceneNode),
       },
     };
@@ -478,7 +297,6 @@ function withAssetIdentity(asset: ProjectAsset, id: AssetId, name: string): Proj
       sprite: {
         ...asset.sprite,
         spriteId: id,
-        palette: asset.sprite.palette.map(cloneSpritePaletteColor),
         nodes: asset.sprite.nodes.map(cloneSceneNode),
       },
     };
@@ -553,167 +371,6 @@ function cloneSceneNode(node: SceneNode): SceneNode {
     ...node,
     children: node.children.map(cloneSceneNode),
   };
-}
-
-function createDefaultSpritePalette(): SpritePaletteColor[] {
-  return [
-    { name: "Ink", rgba: "#111111ff" },
-    { name: "White", rgba: "#ffffffff" },
-  ];
-}
-
-function ensureSpriteAssetColorsInPalette(asset: ProjectAsset): void {
-  if (asset.kind !== "sprite") {
-    return;
-  }
-
-  asset.sprite.palette = normalizeSpritePalette(asset.sprite.palette);
-
-  if (asset.sprite.palette.length === 0) {
-    asset.sprite.palette = createDefaultSpritePalette();
-  }
-
-  for (const rgba of getNodeColors(asset.sprite.nodes)) {
-    addRgbaToSpritePalette(asset.sprite.palette, rgba);
-  }
-}
-
-function normalizeSpritePalette(palette: readonly SpritePaletteColor[]): SpritePaletteColor[] {
-  const normalizedPalette = palette
-    .filter((color) => /^#[0-9a-fA-F]{8}$/.test(color.rgba))
-    .slice(0, 256)
-    .map((color) => ({
-      name: color.name,
-      rgba: color.rgba.toLowerCase(),
-    }));
-
-  return normalizedPalette;
-}
-
-function ensureAllSpriteAssetColorsInPalette(): void {
-  for (const asset of projectState.assets) {
-    ensureSpriteAssetColorsInPalette(asset);
-  }
-}
-
-function addRgbaToSpritePalette(palette: SpritePaletteColor[], rgba: string): void {
-  if (palette.some((color) => color.rgba === rgba) || palette.length >= 256) {
-    return;
-  }
-
-  palette.push({
-    name: toUniquePaletteName("Color", palette),
-    rgba,
-  });
-}
-
-function getNodeColors(nodes: readonly SceneNode[]): string[] {
-  const colors: string[] = [];
-
-  for (const node of nodes) {
-    if (node.type === "group") {
-      colors.push(...getNodeColors(node.children));
-      continue;
-    }
-
-    colors.push(primitiveToRgba(node.command.color, node.command.alpha));
-  }
-
-  return colors;
-}
-
-function replaceNodeColor(nodes: readonly SceneNode[], oldRgba: string, nextColor: { color: string; alpha: number }): SceneNode[] {
-  return nodes.map((node) => {
-    if (node.type === "group") {
-      return {
-        ...node,
-        children: replaceNodeColor(node.children, oldRgba, nextColor),
-      };
-    }
-
-    if (primitiveToRgba(node.command.color, node.command.alpha) !== oldRgba) {
-      return cloneSceneNode(node);
-    }
-
-    return {
-      ...node,
-      command: {
-        ...node.command,
-        color: nextColor.color,
-        alpha: nextColor.alpha,
-      },
-    };
-  });
-}
-
-function isColorUsedInNodes(nodes: readonly SceneNode[], rgba: string): boolean {
-  return nodes.some((node) => {
-    if (node.type === "group") {
-      return isColorUsedInNodes(node.children, rgba);
-    }
-
-    return primitiveToRgba(node.command.color, node.command.alpha) === rgba;
-  });
-}
-
-function primitiveToRgba(color: string, alpha: number): string {
-  const normalizedColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : "#000000";
-  const normalizedAlpha = Math.min(255, Math.max(0, Number.isFinite(alpha) ? Math.round(alpha) : 255));
-
-  return `${normalizedColor}${normalizedAlpha.toString(16).padStart(2, "0")}`;
-}
-
-function rgbaToPrimitiveColor(rgba: string): { color: string; alpha: number } {
-  return {
-    color: rgba.slice(0, 7),
-    alpha: Number.parseInt(rgba.slice(7, 9), 16),
-  };
-}
-
-function normalizeRgba(value: string): string | null {
-  const trimmedValue = value.trim();
-  const match = /^(?:#|0x)([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/i.exec(trimmedValue);
-
-  if (match === null) {
-    return null;
-  }
-
-  return `#${match[1].toLowerCase()}${(match[2] ?? "ff").toLowerCase()}`;
-}
-
-function getCurrentSpritePalette(): SpritePaletteColor[] {
-  const asset = getSelectedSpriteAsset();
-
-  return asset?.sprite.palette ?? createDefaultSpritePalette();
-}
-
-function toUniquePaletteName(baseName: string, palette: readonly SpritePaletteColor[]): string {
-  let candidate = baseName;
-  let suffix = palette.length;
-
-  while (palette.some((color) => color.name === candidate)) {
-    suffix += 1;
-    candidate = `${baseName} ${suffix}`;
-  }
-
-  return candidate;
-}
-
-function toUniquePaletteRgba(baseRgba: string, palette: readonly SpritePaletteColor[]): string {
-  if (!palette.some((color) => color.rgba === baseRgba)) {
-    return baseRgba;
-  }
-
-  for (let value = 0; value <= 255; value += 1) {
-    const channel = value.toString(16).padStart(2, "0");
-    const candidate = `#${channel}${channel}${channel}ff`;
-
-    if (!palette.some((color) => color.rgba === candidate)) {
-      return candidate;
-    }
-  }
-
-  return baseRgba;
 }
 
 function emitProjectStateChanged(): void {

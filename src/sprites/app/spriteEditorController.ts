@@ -15,6 +15,7 @@ import type { AppElements } from "../ui/elements.js";
 import { applyHistorySnapshot, createHistorySnapshot, createInitialState, type AppState } from "./AppState.js";
 
 type LayerMoveTarget = "back" | "backward" | "forward" | "front";
+type ColorSlot = "foreground" | "background";
 
 type PrimitiveBounds = {
   minX: number;
@@ -30,8 +31,10 @@ type SelectedPrimitive = {
 type SpriteEditorControls = {
   toolButtons: HTMLButtonElement[];
   spriteIdInput: HTMLInputElement;
-  canvasWidthSelect: HTMLSelectElement;
-  canvasHeightSelect: HTMLSelectElement;
+  canvasWidthInput: HTMLInputElement;
+  canvasHeightInput: HTMLInputElement;
+  foregroundColorButton: HTMLButtonElement;
+  backgroundColorButton: HTMLButtonElement;
   colorInput: HTMLInputElement;
   colorHexInput: HTMLInputElement;
   selectionSummary: HTMLElement;
@@ -59,11 +62,10 @@ type SpriteEditorMount = AppElements & SpriteEditorControls;
 type SpriteAssetChangeListener = (sprite: SpriteAssetData) => void;
 
 const PASTE_OFFSET = 8;
-const canvasSizeValues = [32, 64, 96, 128, 192, 256, 512, 768, 1024] as const;
+const maximumCanvasSize = 1020;
 
 export class SpriteEditorController {
   private readonly state: AppState = createInitialState();
-  private palette = createDefaultSpritePalette();
   private nodeClipboard: SceneNode[] = [];
   private renderPrimitiveList = (): void => {};
   private canvasView: CanvasView | null = null;
@@ -76,7 +78,7 @@ export class SpriteEditorController {
 
     this.canvasView = new CanvasView(mount, this.state, {
       onRender: () => this.syncUi(),
-      onPickColor: (color, alpha) => this.applyPickedColor(color, alpha),
+      onPickColor: (color) => this.applyPickedColor(color),
     });
 
     this.renderPrimitiveList = bindPrimitiveList(mount, this.state, {
@@ -109,7 +111,6 @@ export class SpriteEditorController {
       height: this.state.spriteHeight,
       pivotX: this.state.pivotX,
       pivotY: this.state.pivotY,
-      palette: this.palette.map((color) => ({ ...color })),
       nodes: cloneNodes(this.state.nodes),
     };
   }
@@ -119,14 +120,13 @@ export class SpriteEditorController {
   }
 
   replaceSpriteAssetData(sprite: SpriteAssetData): void {
-    const width = normalizeCanvasSize(sprite.width);
-    const height = normalizeCanvasSize(sprite.height);
+    const width = normalizeCanvasDimension(sprite.width);
+    const height = normalizeCanvasDimension(sprite.height);
     this.state.spriteId = sprite.spriteId;
     this.state.spriteWidth = width;
     this.state.spriteHeight = height;
-    this.state.pivotX = Math.floor(width / 2);
-    this.state.pivotY = height;
-    this.palette = sprite.palette.map((color) => ({ ...color }));
+    this.state.pivotX = Math.round(sprite.pivotX);
+    this.state.pivotY = Math.round(sprite.pivotY);
     this.state.nodes = cloneNodes(sprite.nodes);
     this.state.undoStack = [];
     this.state.redoStack = [];
@@ -141,26 +141,12 @@ export class SpriteEditorController {
   createNewSprite(spriteId: string): void {
     this.replaceSpriteAssetData({
       spriteId,
-      width: 64,
-      height: 64,
-      pivotX: 32,
-      pivotY: 64,
-      palette: createDefaultSpritePalette(),
+      width: 256,
+      height: 256,
+      pivotX: 128,
+      pivotY: 128,
       nodes: [],
     });
-  }
-
-  setPaletteColor(rgba: string): void {
-    const nextColor = this.parseColorInput(rgba);
-
-    if (nextColor === null) {
-      return;
-    }
-
-    this.state.color = nextColor.color;
-    this.state.alpha = nextColor.alpha;
-    this.syncInputs();
-    this.syncUi();
   }
 
   private bindControls(mount: SpriteEditorMount): void {
@@ -179,10 +165,12 @@ export class SpriteEditorController {
       this.syncUi();
     });
 
-    mount.canvasWidthSelect.addEventListener("change", () => this.resizeCanvas(Number(mount.canvasWidthSelect.value), this.state.spriteHeight));
-    mount.canvasHeightSelect.addEventListener("change", () => this.resizeCanvas(this.state.spriteWidth, Number(mount.canvasHeightSelect.value)));
+    bindCommitInput(mount.canvasWidthInput, () => this.resizeCanvas(Number(mount.canvasWidthInput.value), this.state.spriteHeight));
+    bindCommitInput(mount.canvasHeightInput, () => this.resizeCanvas(this.state.spriteWidth, Number(mount.canvasHeightInput.value)));
 
-    mount.colorInput.addEventListener("input", () => this.applyColor(mount.colorInput.value));
+    mount.foregroundColorButton.addEventListener("click", () => this.selectColorSlot("foreground"));
+    mount.backgroundColorButton.addEventListener("click", () => this.selectColorSlot("background"));
+    mount.colorInput.addEventListener("input", () => this.applyPickerColor(mount.colorInput.value));
     bindCommitInput(mount.colorHexInput, () => this.applyColor(mount.colorHexInput.value));
 
     mount.flipHorizontalButton.addEventListener("click", () => this.flipHorizontalSelection());
@@ -437,7 +425,8 @@ export class SpriteEditorController {
   }
 
   private resizeCanvas(width: number, height: number): void {
-    if (!this.mount || !isCanvasSize(width) || !isCanvasSize(height)) {
+    if (!this.mount || !isCanvasDimension(width) || !isCanvasDimension(height)) {
+      this.syncInputs();
       return;
     }
 
@@ -449,8 +438,8 @@ export class SpriteEditorController {
     this.recordHistory();
     this.state.spriteWidth = width;
     this.state.spriteHeight = height;
-    this.state.pivotX = Math.floor(width / 2);
-    this.state.pivotY = height;
+    this.state.pivotX = Math.round(width / 2);
+    this.state.pivotY = Math.round(height / 2);
     this.state.redoStack = [];
 
     this.syncInputs();
@@ -467,17 +456,67 @@ export class SpriteEditorController {
     }
 
     this.mount.colorHexInput.classList.remove("is-invalid");
-    this.state.color = nextColor.color;
-    this.state.alpha = nextColor.alpha;
+    this.setActiveColor(nextColor);
     this.syncInputs();
     this.syncUi();
   }
 
-  private applyPickedColor(color: string, alpha: number): void {
-    this.state.color = color;
-    this.state.alpha = clampAlpha(alpha);
+  private applyPickedColor(color: string): void {
+    this.setActiveColor(color);
     this.syncInputs();
     this.syncUi();
+  }
+
+  private applyPickerColor(value: string): void {
+    const nextColor = this.parseColorInput(value);
+
+    if (!nextColor || !this.mount) {
+      return;
+    }
+
+    const alpha = this.state.color.slice(6, 8);
+    this.setActiveColor(`${nextColor.slice(0, 6)}${alpha}`);
+    this.syncInputs();
+    this.syncUi();
+  }
+
+  private selectColorSlot(slot: ColorSlot): void {
+    const wasActive = this.state.activeColorSlot === slot;
+    this.state.activeColorSlot = slot;
+    this.state.color = this.getColorSlotValue(slot);
+    this.syncInputs();
+    this.syncUi();
+
+    if (wasActive) {
+      this.openColorPicker();
+    }
+  }
+
+  private setActiveColor(color: string): void {
+    this.state.color = color;
+
+    if (this.state.activeColorSlot === "foreground") {
+      this.state.foregroundColor = color;
+      return;
+    }
+
+    this.state.backgroundColor = color;
+  }
+
+  private getColorSlotValue(slot: ColorSlot): string {
+    return slot === "foreground" ? this.state.foregroundColor : this.state.backgroundColor;
+  }
+
+  private openColorPicker(): void {
+    if (!this.mount) {
+      return;
+    }
+
+    try {
+      this.mount.colorInput.showPicker();
+    } catch {
+      this.mount.colorInput.click();
+    }
   }
 
   private copySelectedPrimitive(): void {
@@ -684,7 +723,7 @@ export class SpriteEditorController {
 
     for (const { primitive } of selectedPrimitives) {
       primitive.y = Math.round(center.y - (primitive.y - center.y));
-      primitive.rotation = Math.PI - primitive.rotation;
+      primitive.rotation = 180 - primitive.rotation;
     }
 
     this.state.redoStack = [];
@@ -781,14 +820,16 @@ export class SpriteEditorController {
       return;
     }
 
-    const alphaHex = this.state.alpha.toString(16).padStart(2, "0");
-
     this.mount.spriteIdInput.value = this.state.spriteId;
-    this.mount.canvasWidthSelect.value = String(this.state.spriteWidth);
-    this.mount.canvasHeightSelect.value = String(this.state.spriteHeight);
-    this.mount.colorInput.value = this.state.color;
-    this.mount.colorHexInput.value = `${this.state.color}${alphaHex}`;
+    this.mount.canvasWidthInput.value = String(this.state.spriteWidth);
+    this.mount.canvasHeightInput.value = String(this.state.spriteHeight);
+    this.mount.colorInput.value = `#${this.state.color.slice(0, 6)}`;
+    this.mount.colorHexInput.value = this.state.color;
     this.mount.colorHexInput.classList.remove("is-invalid");
+    this.mount.foregroundColorButton.style.setProperty("--sprite-color", this.toCssColor(this.state.foregroundColor));
+    this.mount.backgroundColorButton.style.setProperty("--sprite-color", this.toCssColor(this.state.backgroundColor));
+    this.mount.foregroundColorButton.classList.toggle("is-active", this.state.activeColorSlot === "foreground");
+    this.mount.backgroundColorButton.classList.toggle("is-active", this.state.activeColorSlot === "background");
   }
 
   private syncToolButtons(): void {
@@ -887,18 +928,24 @@ export class SpriteEditorController {
     this.state.undoStack.push(createHistorySnapshot(this.state));
   }
 
-  private parseColorInput(value: string): { color: string; alpha: number } | null {
+  private parseColorInput(value: string): string | null {
     const trimmedValue = value.trim();
-    const match = /^(?:#|0x)([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/i.exec(trimmedValue);
+    const match = /^(?:#|0x)?([0-9a-fA-F]{6})([0-9a-fA-F]{2})?$/i.exec(trimmedValue);
 
     if (!match) {
       return null;
     }
 
-    return {
-      color: `#${match[1].toLowerCase()}`,
-      alpha: match[2] ? Number.parseInt(match[2], 16) : 255,
-    };
+    return `${match[1].toLowerCase()}${(match[2] ?? "ff").toLowerCase()}`;
+  }
+
+  private toCssColor(color: string): string {
+    const red = Number.parseInt(color.slice(0, 2), 16);
+    const green = Number.parseInt(color.slice(2, 4), 16);
+    const blue = Number.parseInt(color.slice(4, 6), 16);
+    const alpha = Number.parseInt(color.slice(6, 8), 16) / 255;
+
+    return `rgba(${red}, ${green}, ${blue}, ${alpha.toFixed(3)})`;
   }
 
   private getSelectedPrimitives(): SelectedPrimitive[] {
@@ -1102,15 +1149,9 @@ export class SpriteEditorController {
   }
 }
 
-function createDefaultSpritePalette(): SpriteAssetData["palette"] {
-  return [
-    { name: "Ink", rgba: "#111111ff" },
-    { name: "White", rgba: "#ffffffff" },
-  ];
-}
-
 function bindCommitInput(input: HTMLInputElement, commit: () => void): void {
   input.addEventListener("blur", commit);
+  input.addEventListener("change", commit);
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -1119,12 +1160,16 @@ function bindCommitInput(input: HTMLInputElement, commit: () => void): void {
   });
 }
 
-function isCanvasSize(value: number): boolean {
-  return Number.isInteger(value) && canvasSizeValues.some((size) => size === value);
+function isCanvasDimension(value: number): boolean {
+  return Number.isInteger(value) && value >= 1 && value <= maximumCanvasSize;
 }
 
-function normalizeCanvasSize(value: number): number {
-  return isCanvasSize(value) ? value : 64;
+function normalizeCanvasDimension(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 256;
+  }
+
+  return Math.min(maximumCanvasSize, Math.max(1, Math.round(value)));
 }
 
 function removeSelectedNodes(nodes: readonly SceneNode[], selectedIds: ReadonlySet<string>): SceneNode[] {
@@ -1158,14 +1203,6 @@ function removeSelectedNodes(nodes: readonly SceneNode[], selectedIds: ReadonlyS
 
     return nextNode ? [nextNode] : [];
   });
-}
-
-function clampAlpha(alpha: number): number {
-  if (!Number.isFinite(alpha)) {
-    return 255;
-  }
-
-  return Math.max(0, Math.min(255, Math.round(alpha)));
 }
 
 function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {

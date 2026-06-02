@@ -1,42 +1,26 @@
 import type { SpriteAssetData } from "../model/assets.js";
-import { flattenNodes, type SceneNode } from "../sprites/document/CatPaintDocument.js";
+import { flattenNodes } from "../sprites/document/CatPaintDocument.js";
 import type { Primitive } from "../sprites/primitives/Primitive.js";
 import { isValidSoundId } from "../utils/symbolName.js";
 
-interface ExportedSpriteCommand {
+interface ExportedSpritePrimitive {
   kind: Primitive["kind"];
   x: number;
   y: number;
   w: number;
   h: number;
   rotation: number;
-  color: number;
+  color: string;
 }
 
-type ExportedSpriteNode =
-  | {
-      type: "primitive";
-      name: string;
-      visible: boolean;
-      locked: boolean;
-      command: ExportedSpriteCommand;
-    }
-  | {
-      type: "group";
-      name: string;
-      visible: boolean;
-      locked: boolean;
-      children: ExportedSpriteNode[];
-    };
-
 interface ExportedSpriteJson {
-  type: "sprite";
+  version: 1;
   id: string;
   width: number;
   height: number;
-  palette: string[];
-  commands: ExportedSpriteCommand[];
-  nodes: ExportedSpriteNode[];
+  pivotX: number;
+  pivotY: number;
+  primitives: ExportedSpritePrimitive[];
 }
 
 export function exportSpriteJson(sprite: SpriteAssetData): string | null {
@@ -44,80 +28,35 @@ export function exportSpriteJson(sprite: SpriteAssetData): string | null {
     return null;
   }
 
-  const palette = normalizePalette(sprite.palette.map((color) => color.rgba));
-  const commands = flattenNodes(sprite.nodes).map((command) => exportCommand(command, palette));
-  const nodes = sprite.nodes.map((node) => exportNode(node, palette));
   const exportedSprite: ExportedSpriteJson = {
-    type: "sprite",
+    version: 1,
     id: sprite.spriteId,
-    width: sprite.width,
-    height: sprite.height,
-    palette: palette.map((rgba) => rgba.slice(1)),
-    commands,
-    nodes,
+    width: toInteger(sprite.width),
+    height: toInteger(sprite.height),
+    pivotX: toInteger(sprite.pivotX),
+    pivotY: toInteger(sprite.pivotY),
+    primitives: flattenNodes(sprite.nodes).map(exportPrimitive),
   };
 
   return `${JSON.stringify(exportedSprite, null, 2)}\n`;
 }
 
-function exportNode(node: SceneNode, palette: string[]): ExportedSpriteNode {
-  if (node.type === "primitive") {
-    return {
-      type: "primitive",
-      name: node.name,
-      visible: node.visible,
-      locked: node.locked,
-      command: exportCommand(node.command, palette),
-    };
-  }
-
+function exportPrimitive(primitive: Primitive): ExportedSpritePrimitive {
   return {
-    type: "group",
-    name: node.name,
-    visible: node.visible,
-    locked: node.locked,
-    children: node.children.map((child) => exportNode(child, palette)),
+    kind: primitive.kind,
+    x: toInteger(primitive.x),
+    y: toInteger(primitive.y),
+    w: toInteger(primitive.w),
+    h: toInteger(primitive.h),
+    rotation: primitive.rotation,
+    color: isRgba(primitive.color) ? primitive.color : "000000ff",
   };
 }
 
-function exportCommand(command: Primitive, palette: string[]): ExportedSpriteCommand {
-  return {
-    kind: command.kind,
-    x: command.x,
-    y: command.y,
-    w: command.w,
-    h: command.h,
-    rotation: command.rotation,
-    color: getPaletteIndex(toRgba(command.color, command.alpha), palette),
-  };
-}
-
-function normalizePalette(colors: readonly string[]): string[] {
-  return colors.filter(isRgba).slice(0, 256);
-}
-
-function getPaletteIndex(rgba: string, palette: string[]): number {
-  const existingIndex = palette.indexOf(rgba);
-
-  if (existingIndex !== -1) {
-    return existingIndex;
-  }
-
-  if (palette.length < 256) {
-    palette.push(rgba);
-    return palette.length - 1;
-  }
-
-  return 0;
-}
-
-function toRgba(color: string, alpha: number): string {
-  const normalizedColor = /^#[0-9a-fA-F]{6}$/.test(color) ? color.toLowerCase() : "#000000";
-  const normalizedAlpha = Math.min(255, Math.max(0, Number.isFinite(alpha) ? Math.round(alpha) : 255));
-
-  return `${normalizedColor}${normalizedAlpha.toString(16).padStart(2, "0")}`;
+function toInteger(value: number): number {
+  return Number.isFinite(value) ? Math.round(value) : 0;
 }
 
 function isRgba(value: string): boolean {
-  return /^#[0-9a-fA-F]{8}$/.test(value);
+  return /^[0-9a-f]{8}$/.test(value);
 }

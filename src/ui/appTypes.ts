@@ -45,7 +45,6 @@ export interface AppActions {
   shell: RenderActions;
   music: MusicRenderActions;
   assets: AssetExplorerActions;
-  spritePalette: SpritePaletteActions;
 }
 
 export interface AssetExplorerActions {
@@ -54,14 +53,6 @@ export interface AssetExplorerActions {
   renameAsset: (kind: AssetKind, id: AssetId, name: string) => void;
   duplicateAsset: (kind: AssetKind, id: AssetId) => void;
   deleteAsset: (kind: AssetKind, id: AssetId) => void;
-}
-
-export interface SpritePaletteActions {
-  selectColor: (index: number) => void;
-  addColor: () => void;
-  renameColor: (index: number, name: string) => void;
-  updateColor: (index: number, rgba: string) => void;
-  deleteColor: (index: number) => void;
 }
 
 export interface AppStatus {

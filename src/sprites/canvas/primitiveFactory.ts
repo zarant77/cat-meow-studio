@@ -17,10 +17,9 @@ export function createPrimitiveFromDrag(state: AppState, start: Point, end: Poin
       x: Math.round((left + right) / 2),
       y: Math.round((top + bottom) / 2),
       w: Math.round(size / 2),
-      h: 0,
+      h: Math.round(size / 2),
       rotation: 0,
       color: state.color,
-      alpha: state.alpha,
     };
   }
 
@@ -32,6 +31,5 @@ export function createPrimitiveFromDrag(state: AppState, start: Point, end: Poin
     h: height,
     rotation: 0,
     color: state.color,
-    alpha: state.alpha,
   };
 }

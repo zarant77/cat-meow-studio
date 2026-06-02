@@ -16,18 +16,12 @@ export interface ProjectAssetBase {
   updatedAt: Timestamp;
 }
 
-export interface SpritePaletteColor {
-  name: string;
-  rgba: string;
-}
-
 export interface SpriteAssetData {
   spriteId: string;
   width: number;
   height: number;
   pivotX: number;
   pivotY: number;
-  palette: SpritePaletteColor[];
   nodes: SceneNode[];
 }
 
@@ -51,6 +45,5 @@ export type ProjectAsset = SpriteProjectAsset | MusicProjectAsset | SfxProjectAs
 export interface Project {
   id: string;
   name: string;
-  spritePalette: SpritePaletteColor[];
   assets: ProjectAsset[];
 }

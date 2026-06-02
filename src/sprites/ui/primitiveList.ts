@@ -257,16 +257,17 @@ function createNodeMarker(node: SceneNode): HTMLElement {
     return marker;
   }
 
-  const alpha = Math.max(0.35, clampAlpha(node.command.alpha) / 255);
+  const alpha = Math.max(0.35, Number.parseInt(node.command.color.slice(6, 8), 16) / 255);
+  const cssColor = `#${node.command.color.slice(0, 6)}`;
 
   marker.className = `primitive-list-kind primitive-list-shape-marker is-${node.command.kind}`;
   marker.title = `${node.command.kind}, ${formatPrimitiveColor(node.command)}`;
   marker.style.opacity = String(alpha);
 
   if (node.command.kind === "triangle") {
-    marker.style.borderBottomColor = node.command.color;
+    marker.style.borderBottomColor = cssColor;
   } else {
-    marker.style.backgroundColor = node.command.color;
+    marker.style.backgroundColor = cssColor;
   }
 
   return marker;
@@ -493,9 +494,7 @@ function formatPrimitiveSize(primitive: Primitive): string {
 }
 
 function formatPrimitiveColor(primitive: Primitive): string {
-  const alphaHex = clampAlpha(primitive.alpha).toString(16).padStart(2, "0");
-
-  return `${primitive.color}${alphaHex}`;
+  return primitive.color;
 }
 
 function formatNodeTitle(node: SceneNode): string {
@@ -504,12 +503,4 @@ function formatNodeTitle(node: SceneNode): string {
   }
 
   return `${node.name}: ${node.command.kind}, ${formatPrimitiveColor(node.command)}, ${formatPrimitiveSize(node.command)}`;
-}
-
-function clampAlpha(alpha: number): number {
-  if (!Number.isFinite(alpha)) {
-    return 255;
-  }
-
-  return Math.max(0, Math.min(255, Math.round(alpha)));
 }

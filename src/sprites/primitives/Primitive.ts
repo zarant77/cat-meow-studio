@@ -14,7 +14,6 @@ export type Primitive = {
   h: number;
   rotation: number;
   color: string;
-  alpha: number;
 };
 
 export type Point = {

@@ -11,7 +11,9 @@ export type AppState = {
   activeTool: ToolKind;
   activeKind: PrimitiveKind;
   color: string;
-  alpha: number;
+  foregroundColor: string;
+  backgroundColor: string;
+  activeColorSlot: "foreground" | "background";
   nodes: SceneNode[];
   undoStack: HistorySnapshot[];
   redoStack: HistorySnapshot[];
@@ -31,15 +33,17 @@ export type HistorySnapshot = {
 
 export function createInitialState(): AppState {
   return {
-    spriteId: "player",
-    spriteWidth: 64,
-    spriteHeight: 64,
-    pivotX: 32,
-    pivotY: 64,
+    spriteId: "sprite",
+    spriteWidth: 256,
+    spriteHeight: 256,
+    pivotX: 128,
+    pivotY: 128,
     activeTool: null,
     activeKind: "rect",
-    color: "#111111",
-    alpha: 255,
+    color: "111111ff",
+    foregroundColor: "111111ff",
+    backgroundColor: "ffffffff",
+    activeColorSlot: "foreground",
     nodes: [],
     undoStack: [],
     redoStack: [],

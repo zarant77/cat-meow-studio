@@ -58,7 +58,6 @@ import {
   handleSpriteEditorKeyboardShortcut,
   replaceSpriteEditorAsset,
   redoSpriteEditor,
-  selectSpritePaletteColor,
   syncSpriteEditorAsset,
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
@@ -70,16 +69,11 @@ import {
   getProject,
   getSelectedAssetIds,
   getSelectedProjectAssetId,
-  getSpritePalette,
   renameProjectAsset,
-  renameSpritePaletteColor,
   replaceProjectState,
   selectProjectAsset,
   setSelectedProjectAsset,
-  addSpritePaletteColor,
-  deleteSpritePaletteColor,
   subscribeProjectState,
-  updateSpritePaletteColor,
   upsertCurrentProjectAsset,
 } from "./state/projectState.js";
 import { getAssetExplorerItems } from "./state/assetExplorerState.js";
@@ -327,56 +321,6 @@ const appActions: AppActions = {
       deleteAsset(kind, id);
     },
   },
-  spritePalette: {
-    selectColor(index) {
-      const color = getSpritePalette()[index];
-
-      if (color !== undefined) {
-        selectSpritePaletteColor(color.rgba);
-      }
-    },
-    addColor() {
-      const color = addSpritePaletteColor();
-
-      if (color !== null) {
-        selectSpritePaletteColor(color.rgba);
-      }
-
-      syncSpriteEditorFromSelectedAsset();
-      render();
-    },
-    renameColor(index, name) {
-      renameSpritePaletteColor(index, name);
-      syncSpriteEditorFromSelectedAsset();
-      render();
-    },
-    updateColor(index, rgba) {
-      const color = updateSpritePaletteColor(index, rgba);
-
-      if (color === null) {
-        showStatus("Enter a valid RGBA color like #ffcc00ff.", "error");
-        return;
-      }
-
-      const selectedAsset = getSelectedProjectAssetForMode("sprites");
-
-      if (selectedAsset?.kind === "sprite") {
-        replaceSpriteEditorAsset(selectedAsset.sprite);
-      }
-
-      selectSpritePaletteColor(color.rgba);
-      render();
-    },
-    deleteColor(index) {
-      if (!deleteSpritePaletteColor(index)) {
-        showStatus("Palette color is still used by a sprite.", "error");
-        return;
-      }
-
-      syncSpriteEditorFromSelectedAsset();
-      render();
-    },
-  },
 };
 
 function render(): void {
@@ -579,7 +523,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
     const importKind = detectJsonAssetKind(text);
 
     if (importKind === null) {
-      showStatus('JSON asset must have type "sprite", "music", or "sfx".', "error");
+      showStatus('JSON asset must be a sprite, music, or sfx file.', "error");
       return;
     }
 
@@ -644,7 +588,7 @@ function detectJsonAssetKind(text: string): AssetKind | null {
     return null;
   }
 
-  if (parsed.type === "sprite") {
+  if (parsed.version === 1 && Array.isArray(parsed.primitives)) {
     return "sprite";
   }
 

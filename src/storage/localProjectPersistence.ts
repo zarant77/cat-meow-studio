@@ -1,4 +1,4 @@
-import type { AssetId, AssetKind, Project, ProjectAsset, SpriteAssetData, SpritePaletteColor } from "../model/assets.js";
+import type { AssetId, AssetKind, Project, ProjectAsset, SpriteAssetData } from "../model/assets.js";
 import { isMusicWave, type MusicInstrument, type MusicNote, type MusicProject } from "../model/musicProject.js";
 import { soundWaves, type SoundCommand, type SoundProject, type SoundWave } from "../model/soundProject.js";
 import type { SelectedAssetIds } from "../state/projectState.js";
@@ -79,10 +79,9 @@ function readProject(value: unknown): Project | null {
   }
 
   const assets: ProjectAsset[] = [];
-  const spritePalette = readSpritePalette(value.spritePalette);
 
   for (const assetValue of value.assets) {
-    const asset = readProjectAsset(assetValue, spritePalette);
+    const asset = readProjectAsset(assetValue);
 
     if (asset === null) {
       return null;
@@ -94,37 +93,11 @@ function readProject(value: unknown): Project | null {
   return {
     id: value.id,
     name: value.name,
-    spritePalette,
     assets,
   };
 }
 
-function readSpritePalette(value: unknown): SpritePaletteColor[] {
-  if (!Array.isArray(value)) {
-    return createDefaultSpritePalette();
-  }
-
-  const colors: SpritePaletteColor[] = [];
-
-  for (const colorValue of value.slice(0, 256)) {
-    if (!isRecord(colorValue) || !isString(colorValue.name) || !isRgba(colorValue.rgba)) {
-      continue;
-    }
-
-    colors.push({
-      name: colorValue.name,
-      rgba: colorValue.rgba.toLowerCase(),
-    });
-  }
-
-  if (colors.length === 0) {
-    return createDefaultSpritePalette();
-  }
-
-  return colors;
-}
-
-function readProjectAsset(value: unknown, fallbackSpritePalette: SpritePaletteColor[]): ProjectAsset | null {
+function readProjectAsset(value: unknown): ProjectAsset | null {
   if (!isRecord(value)) {
     return null;
   }
@@ -136,7 +109,7 @@ function readProjectAsset(value: unknown, fallbackSpritePalette: SpritePaletteCo
   }
 
   if (base.kind === "sprite") {
-    const sprite = readSpriteAssetData(value.sprite, fallbackSpritePalette);
+    const sprite = readSpriteAssetData(value.sprite);
 
     return sprite === null ? null : { ...base, kind: "sprite", sprite };
   }
@@ -178,12 +151,12 @@ function readSelectedAssetIds(value: unknown): SelectedAssetIds | null {
   };
 }
 
-function readSpriteAssetData(value: unknown, fallbackPalette: SpritePaletteColor[] = createDefaultSpritePalette()): SpriteAssetData | null {
+function readSpriteAssetData(value: unknown): SpriteAssetData | null {
   if (
     !isRecord(value) ||
     !isString(value.spriteId) ||
-    !isNumber(value.width) ||
-    !isNumber(value.height) ||
+    !isCanvasDimension(value.width) ||
+    !isCanvasDimension(value.height) ||
     !isNumber(value.pivotX) ||
     !isNumber(value.pivotY) ||
     !Array.isArray(value.nodes)
@@ -197,15 +170,12 @@ function readSpriteAssetData(value: unknown, fallbackPalette: SpritePaletteColor
     return null;
   }
 
-  const palette = Array.isArray(value.palette) ? readSpritePalette(value.palette) : fallbackPalette.map((color) => ({ ...color }));
-
   return {
     spriteId: value.spriteId,
     width: value.width,
     height: value.height,
     pivotX: value.pivotX,
     pivotY: value.pivotY,
-    palette,
     nodes,
   };
 }
@@ -277,9 +247,14 @@ function readPrimitive(value: unknown): Primitive | null {
     !isNumber(value.w) ||
     !isNumber(value.h) ||
     !isNumber(value.rotation) ||
-    !isString(value.color) ||
-    !isNumber(value.alpha)
+    !isString(value.color)
   ) {
+    return null;
+  }
+
+  const color = readPrimitiveColor(value.color);
+
+  if (color === null) {
     return null;
   }
 
@@ -290,9 +265,16 @@ function readPrimitive(value: unknown): Primitive | null {
     w: value.w,
     h: value.h,
     rotation: value.rotation,
-    color: value.color,
-    alpha: value.alpha,
+    color,
   };
+}
+
+function readPrimitiveColor(color: string): string | null {
+  if (/^[0-9a-f]{8}$/.test(color)) {
+    return color;
+  }
+
+  return null;
 }
 
 function readMusicProject(value: unknown): MusicProject | null {
@@ -443,6 +425,10 @@ function isNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function isCanvasDimension(value: unknown): value is number {
+  return Number.isInteger(value) && value >= 1 && value <= 1020;
+}
+
 function isBoolean(value: unknown): value is boolean {
   return typeof value === "boolean";
 }
@@ -461,15 +447,4 @@ function isPrimitiveKind(value: unknown): value is PrimitiveKind {
 
 function isSoundWave(value: string): value is SoundWave {
   return soundWaves.some((wave) => wave === value);
-}
-
-function isRgba(value: unknown): value is string {
-  return typeof value === "string" && /^#[0-9a-fA-F]{8}$/.test(value);
-}
-
-function createDefaultSpritePalette(): SpritePaletteColor[] {
-  return [
-    { name: "Ink", rgba: "#111111ff" },
-    { name: "White", rgba: "#ffffffff" },
-  ];
 }

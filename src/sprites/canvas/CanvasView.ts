@@ -19,7 +19,7 @@ import { getSpritePoint } from "./pointer.js";
 
 export type CanvasViewCallbacks = {
   onRender: () => void;
-  onPickColor: (color: string, alpha: number) => void;
+  onPickColor: (color: string) => void;
 };
 
 type InteractionMode =
@@ -332,13 +332,12 @@ export class CanvasView {
   private fillTopmostPrimitive(hitNodeIds: string[]): void {
     const primitive = getEditableCommand(this.state, hitNodeIds[0]);
 
-    if (!primitive || (primitive.color === this.state.color && primitive.alpha === this.state.alpha)) {
+    if (!primitive || primitive.color === this.state.color) {
       return;
     }
 
     this.state.undoStack.push(createHistorySnapshot(this.state));
     primitive.color = this.state.color;
-    primitive.alpha = this.state.alpha;
     this.state.redoStack = [];
     this.render();
   }
@@ -630,7 +629,7 @@ export class CanvasView {
       const offsetY = start.primitive.y - this.transformStart.pivot.y;
       primitive.x = Math.round(this.transformStart.pivot.x + offsetX * cos - offsetY * sin);
       primitive.y = Math.round(this.transformStart.pivot.y + offsetX * sin + offsetY * cos);
-      primitive.rotation = start.primitive.rotation + delta;
+      primitive.rotation = start.primitive.rotation + radiansToDegrees(delta);
     }
 
     this.render();
@@ -650,9 +649,9 @@ export class CanvasView {
 
     for (const start of this.transformStart.primitives) {
       const nextW = Math.round(start.primitive.w * factor);
-      const nextH = start.primitive.kind === "circle" ? start.primitive.h : Math.round(start.primitive.h * factor);
+      const nextH = Math.round(start.primitive.h * factor);
 
-      if (nextW < 1 || (start.primitive.kind !== "circle" && nextH < 1)) {
+      if (nextW < 1 || nextH < 1) {
         return;
       }
     }
@@ -673,10 +672,7 @@ export class CanvasView {
         this.transformStart.pivot.y + (start.primitive.y - this.transformStart.pivot.y) * factor,
       );
       primitive.w = Math.max(1, Math.round(start.primitive.w * factor));
-
-      if (primitive.kind !== "circle") {
-        primitive.h = Math.max(1, Math.round(start.primitive.h * factor));
-      }
+      primitive.h = Math.max(1, Math.round(start.primitive.h * factor));
     }
 
     this.render();
@@ -878,7 +874,7 @@ export class CanvasView {
       return;
     }
 
-    this.callbacks.onPickColor(primitive.color, primitive.alpha);
+    this.callbacks.onPickColor(primitive.color);
   }
 
   private getTopmostVisiblePrimitive(point: Point): Primitive | null {
@@ -933,7 +929,7 @@ export class CanvasView {
 
     this.ctx.save();
     this.ctx.translate(primitive.x, primitive.y);
-    this.ctx.rotate(primitive.rotation);
+    this.ctx.rotate(degreesToRadians(primitive.rotation));
     this.ctx.strokeStyle = "#2563eb";
     this.ctx.lineWidth = 2 / this.getCanvasScale();
     this.ctx.setLineDash([4 / this.getCanvasScale(), 3 / this.getCanvasScale()]);
@@ -1154,8 +1150,9 @@ function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
 function toPrimitiveLocalPoint(point: Point, primitive: Primitive): Point {
   const dx = point.x - primitive.x;
   const dy = point.y - primitive.y;
-  const cos = Math.cos(-primitive.rotation);
-  const sin = Math.sin(-primitive.rotation);
+  const radians = degreesToRadians(-primitive.rotation);
+  const cos = Math.cos(radians);
+  const sin = Math.sin(radians);
 
   return {
     x: dx * cos - dy * sin,
@@ -1204,6 +1201,14 @@ function getPrimitiveBounds(primitive: Primitive): RectBounds {
 
 function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
   return tool === "rect" || tool === "circle" || tool === "triangle";
+}
+
+function degreesToRadians(degrees: number): number {
+  return (degrees * Math.PI) / 180;
+}
+
+function radiansToDegrees(radians: number): number {
+  return (radians * 180) / Math.PI;
 }
 
 function normalizeBounds(start: Point, end: Point): RectBounds {
