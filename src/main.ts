@@ -3,6 +3,7 @@ import { generateMusicSamples } from "./audio/musicGenerator.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
 import { exportSpriteJson } from "./export/exportSpriteJson.js";
 import { exportSoundJson } from "./export/exportSoundJson.js";
+import { importAnimationJson } from "./animation/animationJson.js";
 import { importMusicJson } from "./import/importMusicJson.js";
 import { importSpriteJson } from "./import/importSpriteJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
@@ -50,6 +51,12 @@ import {
 } from "./state/musicEditorState.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
 import {
+  exportCurrentAnimatorJson,
+  replaceAnimatorAnimation,
+  stopAnimatorPlayback,
+  toggleAnimatorPlayback,
+} from "./ui/animatorView.js";
+import {
   canRedoSpriteEditor,
   canUndoSpriteEditor,
   createNewSpriteEditorAsset,
@@ -78,9 +85,10 @@ if (app === null) {
 
 const preview = new AudioPreview();
 const jsonFileInput = createJsonFileInput();
-let activeMode: AppMode = "sfx";
+let activeMode: AppMode = getModeFromLocationHash() ?? "sprites";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
+let isSyncingHash = false;
 const legacyProjectStorageKeys = [
   "cat-meow-studio:project",
   "cat-meow:sound-project",
@@ -125,6 +133,10 @@ const actions: RenderActions = {
     }
   },
   canUndo() {
+    if (activeMode === "animator") {
+      return false;
+    }
+
     if (activeMode === "music") {
       return canUndoMusic();
     }
@@ -136,6 +148,10 @@ const actions: RenderActions = {
     return canUndoSpriteEditor();
   },
   canRedo() {
+    if (activeMode === "animator") {
+      return false;
+    }
+
     if (activeMode === "music") {
       return canRedoMusic();
     }
@@ -147,6 +163,11 @@ const actions: RenderActions = {
     return canRedoSpriteEditor();
   },
   playSound() {
+    if (activeMode === "animator") {
+      toggleAnimatorPlayback();
+      return;
+    }
+
     if (preview.isPlaying()) {
       preview.stop();
       return;
@@ -162,6 +183,11 @@ const actions: RenderActions = {
     }
   },
   stopSound() {
+    if (activeMode === "animator") {
+      stopAnimatorPlayback();
+      return;
+    }
+
     preview.stop();
   },
   toggleFullscreen() {
@@ -319,6 +345,11 @@ function render(): void {
 }
 
 function createFreshSceneForMode(mode: AppMode): void {
+  if (mode === "animator") {
+    switchMode("animator");
+    return;
+  }
+
   if (mode === "sprites") {
     createNewSpriteEditorAsset("sprite");
     switchMode("sprites");
@@ -341,6 +372,7 @@ function createFreshSceneForMode(mode: AppMode): void {
 function switchMode(mode: AppMode): void {
   activeMode = mode;
   preview.stop();
+  syncHashForMode(mode);
   render();
 }
 
@@ -376,10 +408,16 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
 
   try {
     const text = await readTextFile(file);
+
+    if (activeMode === "animator") {
+      importJsonForAnimator(text);
+      return;
+    }
+
     const importKind = detectJsonAssetKind(text);
 
     if (importKind === null) {
-      showStatus('JSON asset must be a sprite, music, or sfx file.', "error");
+      showStatus('JSON asset must be a sprite, animation, music, or sfx file.', "error");
       return;
     }
 
@@ -414,6 +452,20 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       return;
     }
 
+    if (importKind === "animation") {
+      const animationResult = importAnimationJson(text);
+
+      if (!animationResult.ok) {
+        showStatus(animationResult.error, "error");
+        return;
+      }
+
+      replaceAnimatorAnimation(animationResult.animationFile);
+      switchMode("animator");
+      showStatus(`Imported ${animationResult.animationFile.id}.anim.json`, "success");
+      return;
+    }
+
     const soundResult = importSoundJson(text);
 
     if (!soundResult.ok) {
@@ -431,7 +483,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
   }
 }
 
-function detectJsonAssetKind(text: string): AssetKind | null {
+function detectJsonAssetKind(text: string): AssetKind | "animation" | null {
   let parsed: unknown;
 
   try {
@@ -448,6 +500,10 @@ function detectJsonAssetKind(text: string): AssetKind | null {
     return "sprite";
   }
 
+  if (parsed.version === 1 && (Array.isArray(parsed.tracks) || Array.isArray(parsed.animations))) {
+    return "animation";
+  }
+
   if (parsed.type === "music") {
     return "music";
   }
@@ -457,6 +513,26 @@ function detectJsonAssetKind(text: string): AssetKind | null {
   }
 
   return null;
+}
+
+function importJsonForAnimator(text: string): void {
+  const importKind = detectJsonAssetKind(text);
+
+  if (importKind === "animation") {
+    const animationResult = importAnimationJson(text);
+
+    if (!animationResult.ok) {
+      showStatus(animationResult.error, "error");
+      return;
+    }
+
+    replaceAnimatorAnimation(animationResult.animationFile);
+    switchMode("animator");
+    showStatus(`Imported ${animationResult.animationFile.id}.anim.json`, "success");
+    return;
+  }
+
+  showStatus("Top import in Animator expects animation JSON. Use the left toolbar to import a sprite preview.", "error");
 }
 
 function renderAfterEditorChange(): void {
@@ -494,6 +570,10 @@ function syncActiveAsset(): void {
     return;
   }
 
+  if (activeMode === "animator") {
+    return;
+  }
+
   syncCurrentSfxAsset();
 }
 
@@ -525,16 +605,74 @@ function modeToAssetKind(mode: AppMode): AssetKind {
     return "sprite";
   }
 
+  if (mode === "animator") {
+    return "sprite";
+  }
+
   return mode;
+}
+
+function getModeFromLocationHash(): AppMode | null {
+  return routeToMode(window.location.hash.replace(/^#/, ""));
+}
+
+function routeToMode(route: string): AppMode | null {
+  if (route === "sprite" || route === "sprites") {
+    return "sprites";
+  }
+
+  if (route === "animator") {
+    return "animator";
+  }
+
+  if (route === "music") {
+    return "music";
+  }
+
+  if (route === "sfx") {
+    return "sfx";
+  }
+
+  return null;
+}
+
+function modeToHashRoute(mode: AppMode): string {
+  if (mode === "sprites") {
+    return "sprite";
+  }
+
+  return mode;
+}
+
+function syncHashForMode(mode: AppMode): void {
+  const route = modeToHashRoute(mode);
+
+  if (window.location.hash.replace(/^#/, "") === route) {
+    return;
+  }
+
+  isSyncingHash = true;
+  window.location.hash = route;
+  window.setTimeout(() => {
+    isSyncingHash = false;
+  }, 0);
 }
 
 function boot(): void {
   clearLegacyProjectStorage();
   resetProjectState({ emit: false });
+  syncHashForMode(activeMode);
   render();
 }
 
 function exportJsonForMode(mode: AppMode): void {
+  if (mode === "animator") {
+    if (exportCurrentAnimatorJson()) {
+      showStatus("Exported animation JSON.", "success");
+    }
+    return;
+  }
+
   exportJsonForKind(modeToAssetKind(mode));
 }
 
@@ -712,6 +850,10 @@ function getImportErrorMessage(): string {
     return "The sprite file could not be imported.";
   }
 
+  if (activeMode === "animator") {
+    return "The animator JSON file could not be imported.";
+  }
+
   return "The sound file could not be imported.";
 }
 
@@ -727,6 +869,22 @@ function isTextEntryTarget(target: EventTarget | null): boolean {
     (target instanceof HTMLElement && target.isContentEditable)
   );
 }
+
+window.addEventListener("hashchange", () => {
+  if (isSyncingHash) {
+    return;
+  }
+
+  const mode = getModeFromLocationHash() ?? "sprites";
+
+  if (mode === activeMode) {
+    return;
+  }
+
+  activeMode = mode;
+  preview.stop();
+  render();
+});
 
 document.addEventListener("keydown", handleKeyboardShortcut);
 

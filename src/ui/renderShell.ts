@@ -3,6 +3,7 @@ import {
   Image,
   Maximize2,
   Music,
+  RotateCw,
   Upload,
   Volume2,
 } from "lucide";
@@ -66,6 +67,7 @@ function renderHeader(mode: AppMode, shellActions: RenderActions): HTMLElement {
   const nav = createElement("nav", "asset-nav");
   nav.append(
     createModeButton(Image, "Sprites", "sprites", mode, shellActions),
+    createModeButton(RotateCw, "Animator", "animator", mode, shellActions),
     createModeButton(Music, "Music", "music", mode, shellActions),
     createModeButton(Volume2, "SFX", "sfx", mode, shellActions),
   );

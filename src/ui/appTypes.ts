@@ -1,7 +1,7 @@
 import type { SoundCommandPatch } from "../state/editorState.js";
 import type { MusicInstrumentPatch, MusicNotePatch, MusicProjectPatch } from "../state/musicEditorState.js";
 
-export type AppMode = "music" | "sfx" | "sprites";
+export type AppMode = "music" | "sfx" | "sprites" | "animator";
 
 export interface RenderActions {
   playSound: () => void;

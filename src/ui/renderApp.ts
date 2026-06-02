@@ -4,6 +4,7 @@ import type { AppActions, AppMode, AppStatus, ModeSurface, MusicRenderActions, R
 import { renderMusicPreview, renderMusicWorkspaceSurface } from "./renderMusicEditor.js";
 import { renderAppShell } from "./renderShell.js";
 import { renderSfxSurface } from "./renderSfxEditor.js";
+import { destroyAnimatorWorkspace, renderAnimatorSurface } from "./animatorView.js";
 import { destroySpritesWorkspace, renderSpriteEditorSurface } from "./renderSpriteEditor.js";
 
 export type { AppActions, AppMode, AppStatus, MusicRenderActions, RenderActions };
@@ -48,6 +49,7 @@ function renderModeSurface(
 ): ModeSurface {
   if (mode === "music") {
     destroySpritesWorkspace();
+    destroyAnimatorWorkspace();
     return {
       ...renderMusicWorkspaceSurface(musicState, actions.music, actions.shell),
       previewStatusArea: renderMusicPreview(musicState),
@@ -55,10 +57,17 @@ function renderModeSurface(
   }
 
   if (mode === "sprites") {
+    destroyAnimatorWorkspace();
     return renderSpriteEditorSurface();
   }
 
+  if (mode === "animator") {
+    destroySpritesWorkspace();
+    return renderAnimatorSurface();
+  }
+
   destroySpritesWorkspace();
+  destroyAnimatorWorkspace();
   return renderSfxSurface(state, actions.shell);
 }
 
