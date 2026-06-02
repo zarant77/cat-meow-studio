@@ -125,8 +125,16 @@ function readProjectAsset(value: unknown): ProjectAsset | null {
   return sfx === null ? null : { ...base, kind: "sfx", sfx };
 }
 
-function readProjectAssetBase(value: Record<string, unknown>): Pick<ProjectAsset, "id" | "kind" | "name" | "createdAt" | "updatedAt"> | null {
-  if (!isString(value.id) || !isAssetKind(value.kind) || !isString(value.name) || !isString(value.createdAt) || !isString(value.updatedAt)) {
+function readProjectAssetBase(
+  value: Record<string, unknown>,
+): Pick<ProjectAsset, "id" | "kind" | "name" | "createdAt" | "updatedAt"> | null {
+  if (
+    !isString(value.id) ||
+    !isAssetKind(value.kind) ||
+    !isString(value.name) ||
+    !isString(value.createdAt) ||
+    !isString(value.updatedAt)
+  ) {
     return null;
   }
 
@@ -313,7 +321,15 @@ function readMusicInstruments(values: unknown[]): MusicInstrument[] | null {
   const instruments: MusicInstrument[] = [];
 
   for (const value of values) {
-    if (!isRecord(value) || !isString(value.id) || !isString(value.wave) || !isMusicWave(value.wave) || !isNumber(value.volume) || !isNumber(value.attackMs) || !isNumber(value.decayMs)) {
+    if (
+      !isRecord(value) ||
+      !isString(value.id) ||
+      !isString(value.wave) ||
+      !isMusicWave(value.wave) ||
+      !isNumber(value.volume) ||
+      !isNumber(value.attackMs) ||
+      !isNumber(value.decayMs)
+    ) {
       return null;
     }
 
@@ -426,7 +442,7 @@ function isNumber(value: unknown): value is number {
 }
 
 function isCanvasDimension(value: unknown): value is number {
-  return Number.isInteger(value) && value >= 1 && value <= 1020;
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1020;
 }
 
 function isBoolean(value: unknown): value is boolean {
