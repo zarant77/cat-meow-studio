@@ -16,6 +16,7 @@ Instead of storing PNG, WAV, OGG, or MP3 files, Cat Meow Studio stores compact s
 
 - [ANIMATION_FORMAT.md](./ANIMATION_FORMAT.md)
 - [AUDIO_FORMAT.md](./AUDIO_FORMAT.md)
+- [FONT_FORMAT.md](./FONT_FORMAT.md)
 - [SPRITE_FORMAT.md](./SPRITE_FORMAT.md)
 
 ## Goals

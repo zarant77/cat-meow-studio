@@ -1,6 +1,7 @@
 import { Plus } from "lucide";
 import type { AnimationClip, AnimationEasing, AnimationKey, AnimationProperty, AnimationTrack } from "../animation/animationTypes.js";
 import { animationEasings, animationProperties } from "../animation/animationTypes.js";
+import { displayValueForProperty, formatDisplayValue, getValueInputConfig, storedValueForProperty } from "../animation/animationValueFormat.js";
 import { createElement, createField, createIconButton, createTextElement } from "./dom.js";
 
 export interface AnimatorInspectorSelection {
@@ -29,7 +30,7 @@ export function renderAnimatorInspector(input: {
   root.append(renderClipSection(input.clip, input.selectedClip, input.actions));
   root.append(renderPresetSection(input.presetOptions, input.actions));
   root.append(renderTrackSection(input.selection.track, input.actions));
-  root.append(renderKeySection(input.selection.key, input.actions));
+  root.append(renderKeySection(input.selection.track, input.selection.key, input.actions));
 
   return root;
 }
@@ -131,9 +132,11 @@ function renderTrackSection(track: AnimationTrack | null, actions: AnimatorInspe
   return section;
 }
 
-function renderKeySection(key: AnimationKey | null, actions: AnimatorInspectorActions): HTMLElement {
+function renderKeySection(track: AnimationTrack | null, key: AnimationKey | null, actions: AnimatorInspectorActions): HTMLElement {
   const section = createElement("section", "animator-inspector-section");
   section.append(createTextElement("h2", "Key"));
+  const property = track?.property ?? "offset_x";
+  const valueConfig = getValueInputConfig(property);
 
   const timeInput = createElement("input");
   timeInput.type = "number";
@@ -145,10 +148,15 @@ function renderKeySection(key: AnimationKey | null, actions: AnimatorInspectorAc
 
   const valueInput = createElement("input");
   valueInput.type = "number";
-  valueInput.step = "1";
-  valueInput.value = String(key?.value ?? 0);
+  valueInput.min = String(valueConfig.min);
+  valueInput.max = String(valueConfig.max);
+  valueInput.step = String(valueConfig.step);
+  valueInput.value = key === null ? "0" : formatDisplayValue(displayValueForProperty(property, key.value));
   valueInput.disabled = key === null;
-  valueInput.addEventListener("change", () => actions.updateSelectedKey({ value: toInteger(valueInput.value, key?.value ?? 0) }));
+  valueInput.addEventListener("change", () => {
+    const fallback = key === null ? 0 : displayValueForProperty(property, key.value);
+    actions.updateSelectedKey({ value: storedValueForProperty(property, toNumber(valueInput.value, fallback)) });
+  });
 
   const easingSelect = createElement("select");
   easingSelect.disabled = key === null;
@@ -165,13 +173,19 @@ function renderKeySection(key: AnimationKey | null, actions: AnimatorInspectorAc
     }
   });
 
-  section.append(createField("timeMs", timeInput), createField("Value", valueInput), createField("Easing", easingSelect));
+  section.append(createField("timeMs", timeInput), createField(valueConfig.label, valueInput), createField("Easing", easingSelect));
 
   return section;
 }
 
 function toInteger(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toNumber(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
 
   return Number.isFinite(parsed) ? parsed : fallback;
 }

@@ -1,6 +1,6 @@
 import type { AnimationClip } from "./animationTypes.js";
 
-export type AnimationPresetId = "idle_bounce" | "walk_squash" | "smash" | "land_squash";
+export type AnimationPresetId = "idle_bounce" | "walk_squash" | "smash" | "land_squash" | "death";
 
 export interface AnimationPreset {
   id: AnimationPresetId;
@@ -106,8 +106,51 @@ export const animationPresets: readonly AnimationPreset[] = [
           property: "rotation",
           keys: [
             { timeMs: 0, value: 0, easing: "linear" },
-            { timeMs: 120, value: -80, easing: "ease_out" },
+            { timeMs: 120, value: -350, easing: "ease_out" },
             { timeMs: 260, value: 0, easing: "ease_in" },
+          ],
+        },
+      ],
+    }),
+  },
+  {
+    id: "death",
+    label: "Death fade",
+    createClip: (clipId) => ({
+      version: 1,
+      id: clipId,
+      durationMs: 700,
+      loop: false,
+      tracks: [
+        {
+          property: "scale_x",
+          keys: [
+            { timeMs: 0, value: 1000, easing: "linear" },
+            { timeMs: 260, value: 1120, easing: "ease_out" },
+            { timeMs: 700, value: 850, easing: "ease_in" },
+          ],
+        },
+        {
+          property: "scale_y",
+          keys: [
+            { timeMs: 0, value: 1000, easing: "linear" },
+            { timeMs: 260, value: 880, easing: "ease_out" },
+            { timeMs: 700, value: 760, easing: "ease_in" },
+          ],
+        },
+        {
+          property: "alpha",
+          keys: [
+            { timeMs: 0, value: 255, easing: "linear" },
+            { timeMs: 420, value: 180, easing: "ease_in_out" },
+            { timeMs: 700, value: 0, easing: "ease_out" },
+          ],
+        },
+        {
+          property: "offset_y",
+          keys: [
+            { timeMs: 0, value: 0, easing: "linear" },
+            { timeMs: 700, value: 10, easing: "ease_in" },
           ],
         },
       ],

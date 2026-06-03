@@ -226,6 +226,10 @@ function parseKey(value: unknown, durationMs: number, property: AnimationPropert
     return failKey(`${keyLabel} value must be an integer.`);
   }
 
+  if (!isValidPropertyValue(property, value.value)) {
+    return failKey(`${keyLabel} value is outside the supported range for "${property}".`);
+  }
+
   if (!isAnimationEasing(value.easing)) {
     return failKey(`${keyLabel} has an unsupported easing value.`);
   }
@@ -258,6 +262,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isInteger(value: unknown): value is number {
   return Number.isInteger(value);
+}
+
+function isValidPropertyValue(property: AnimationProperty, value: number): boolean {
+  if (property === "rotation") {
+    return value >= -32768 && value <= 32767;
+  }
+
+  if (property === "alpha") {
+    return value >= 0 && value <= 255;
+  }
+
+  return true;
 }
 
 function fail(error: string): ImportAnimationJsonResult {

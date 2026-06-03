@@ -565,6 +565,9 @@ class AnimatorController {
     }
 
     track.property = property;
+    track.keys.forEach((key) => {
+      key.value = clampPropertyValue(property, key.value);
+    });
     this.selectedTrackIndex = trackIndex;
     this.render();
   }
@@ -586,7 +589,7 @@ class AnimatorController {
 
     const key: AnimationKey = {
       timeMs: this.currentTimeMs,
-      value: getDefaultPropertyValue(track.property),
+      value: clampPropertyValue(track.property, getDefaultPropertyValue(track.property)),
       easing: "linear",
     };
     track.keys.push(key);
@@ -632,7 +635,7 @@ class AnimatorController {
     }
 
     if (patch.value !== undefined) {
-      key.value = Math.round(patch.value);
+      key.value = clampPropertyValue(track.property, patch.value);
     }
 
     if (patch.easing !== undefined) {
@@ -847,6 +850,20 @@ function getDefaultPropertyValue(property: AnimationProperty): number {
   }
 
   return 0;
+}
+
+function clampPropertyValue(property: AnimationProperty, value: number): number {
+  const rounded = Math.round(value);
+
+  if (property === "rotation") {
+    return Math.max(-32768, Math.min(32767, rounded));
+  }
+
+  if (property === "alpha") {
+    return Math.max(0, Math.min(255, rounded));
+  }
+
+  return rounded;
 }
 
 function sortTrackKeys(track: AnimationTrack, selectedKey: AnimationKey): number {

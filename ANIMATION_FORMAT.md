@@ -1,5 +1,3 @@
-# ANIMATION_FORMAT.md
-
 # Cat Meow Studio ↔ Little One Animation Format
 
 ## Purpose

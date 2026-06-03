@@ -1,6 +1,7 @@
 import { Plus, Trash2 } from "lucide";
 import type { AnimationClip, AnimationEasing, AnimationProperty } from "../animation/animationTypes.js";
 import { animationEasings, animationProperties } from "../animation/animationTypes.js";
+import { displayValueForProperty, formatDisplayValue, getValueInputConfig, storedValueForProperty } from "../animation/animationValueFormat.js";
 import { createElement, createIconButton, createTextElement } from "./dom.js";
 
 export interface AnimatorTimelineSelection {
@@ -72,7 +73,7 @@ export function renderAnimatorTimeline(
       row.append(
         createPropertyCell(track.property, (property) => actions.updateTrackProperty(trackIndex, property)),
         createNumberCell(key.timeMs, 0, 100000, (timeMs) => actions.updateKey(trackIndex, keyIndex, { timeMs })),
-        createNumberCell(key.value, -32768, 32767, (value) => actions.updateKey(trackIndex, keyIndex, { value })),
+        createValueCell(track.property, key.value, (value) => actions.updateKey(trackIndex, keyIndex, { value })),
         createEasingCell(key.easing, (easing) => actions.updateKey(trackIndex, keyIndex, { easing })),
         createKeyActionsCell(trackIndex, keyIndex, actions),
       );
@@ -114,6 +115,22 @@ function createNumberCell(value: number, min: number, max: number, onChange: (va
   input.step = "1";
   input.value = String(value);
   input.addEventListener("change", () => onChange(toInteger(input.value, value)));
+  cell.append(input);
+
+  return cell;
+}
+
+function createValueCell(property: AnimationProperty, value: number, onChange: (value: number) => void): HTMLTableCellElement {
+  const cell = createElement("td");
+  const input = createElement("input");
+  const config = getValueInputConfig(property);
+  input.type = "number";
+  input.min = String(config.min);
+  input.max = String(config.max);
+  input.step = String(config.step);
+  input.title = config.label;
+  input.value = formatDisplayValue(displayValueForProperty(property, value));
+  input.addEventListener("change", () => onChange(storedValueForProperty(property, toNumber(input.value, displayValueForProperty(property, value)))));
   cell.append(input);
 
   return cell;
@@ -174,6 +191,12 @@ function createEmptyCell(text: string): HTMLTableCellElement {
 
 function toInteger(value: string, fallback: number): number {
   const parsed = Number.parseInt(value, 10);
+
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toNumber(value: string, fallback: number): number {
+  const parsed = Number.parseFloat(value);
 
   return Number.isFinite(parsed) ? parsed : fallback;
 }
