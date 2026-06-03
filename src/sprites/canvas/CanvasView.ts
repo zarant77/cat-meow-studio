@@ -41,6 +41,7 @@ type TransformStart = {
   angle: number;
   distance: number;
   scaleHandle: ScaleHandleKind | null;
+  kind: "rotate" | "freeScale" | "uniformScale";
   primitives: TransformPrimitiveStart[];
 };
 
@@ -136,7 +137,7 @@ export class CanvasView {
       this.canvas.setPointerCapture(event.pointerId);
       const hitNodeIds = this.hitTestAllPrimitives(point);
 
-      if (this.state.activeTool === "rotate" || this.state.activeTool === "scale") {
+      if (this.state.activeTool === "rotate" || this.state.activeTool === "transform" || this.state.activeTool === "scale") {
         this.beginTransform(point, hitNodeIds);
         this.render();
         return;
@@ -308,6 +309,34 @@ export class CanvasView {
     this.updateCursor();
   }
 
+  cancelInteraction(): boolean {
+    if (!this.hasActiveInteraction()) {
+      return false;
+    }
+
+    if (this.transformStart) {
+      for (const start of this.transformStart.primitives) {
+        const primitive = getEditableCommand(this.state, start.nodeId);
+
+        if (primitive) {
+          primitive.x = start.primitive.x;
+          primitive.y = start.primitive.y;
+          primitive.w = start.primitive.w;
+          primitive.h = start.primitive.h;
+          primitive.rotation = start.primitive.rotation;
+        }
+      }
+
+      if (this.hasTransformedSelection) {
+        this.state.undoStack.pop();
+      }
+    }
+
+    this.resetInteraction();
+    this.render();
+    return true;
+  }
+
   hitTestAllPrimitives(point: Point): string[] {
     const hitNodeIds: string[] = [];
     const topTarget = this.hitTestTopPrimitive(point);
@@ -349,9 +378,15 @@ export class CanvasView {
       }
     }
 
-    const scaleHandle = this.state.activeTool === "scale" ? this.hitTestScaleHandle(point) : null;
+    const transformKind = this.getTransformKind();
+    const scaleHandle =
+      transformKind === "freeScale"
+        ? this.hitTestFreeScaleHandle(point)
+        : transformKind === "uniformScale"
+          ? this.hitTestUniformScaleHandle(point)
+          : null;
 
-    if (this.state.activeTool === "scale" && !scaleHandle) {
+    if ((transformKind === "freeScale" || transformKind === "uniformScale") && !scaleHandle) {
       return;
     }
 
@@ -381,6 +416,7 @@ export class CanvasView {
       pivot,
       angle: Math.atan2(dy, dx),
       distance: Math.hypot(dx, dy),
+      kind: transformKind,
       scaleHandle: scaleHandle?.kind ?? null,
       primitives: selectedStarts.map((start) => ({
         nodeId: start.nodeId,
@@ -388,7 +424,7 @@ export class CanvasView {
       })),
     };
 
-    this.interactionMode = this.state.activeTool === "rotate" ? "rotatingSelection" : "scalingSelection";
+    this.interactionMode = transformKind === "rotate" ? "rotatingSelection" : "scalingSelection";
     this.activeInteractionCursor = this.getTransformCursor(point);
     this.hasTransformedSelection = false;
     this.updateCursor();
@@ -648,6 +684,19 @@ export class CanvasView {
       return;
     }
 
+    if (this.transformStart.kind === "uniformScale") {
+      this.uniformScaleSelection(point);
+      return;
+    }
+
+    this.freeScaleSelection(point);
+  }
+
+  private freeScaleSelection(point: Point): void {
+    if (!this.transformStart?.scaleHandle) {
+      return;
+    }
+
     const handle = this.transformStart.scaleHandle;
     this.ensureTransformHistory();
 
@@ -667,6 +716,33 @@ export class CanvasView {
       if (handleAffectsY(handle)) {
         primitive.h = Math.max(1, Math.round(Math.abs(localPoint.y) * 2));
       }
+    }
+
+    this.render();
+  }
+
+  private uniformScaleSelection(point: Point): void {
+    if (!this.transformStart || this.transformStart.distance <= 0) {
+      return;
+    }
+
+    const distance = getDistance(point, this.transformStart.pivot);
+    const factor = Math.max(0.01, distance / this.transformStart.distance);
+
+    if (!Number.isFinite(factor)) {
+      return;
+    }
+
+    this.ensureTransformHistory();
+
+    for (const start of this.transformStart.primitives) {
+      const primitive = getEditableCommand(this.state, start.nodeId);
+
+      if (!primitive) {
+        continue;
+      }
+
+      scalePrimitiveFromStart(primitive, start.primitive, this.transformStart.pivot, factor);
     }
 
     this.render();
@@ -765,8 +841,12 @@ export class CanvasView {
       return this.isOverRotateHandle(this.hoverPoint) ? "crosshair" : "default";
     }
 
+    if (this.state.activeTool === "transform") {
+      return this.hitTestFreeScaleHandle(this.hoverPoint)?.cursor ?? "default";
+    }
+
     if (this.state.activeTool === "scale") {
-      return this.hitTestScaleHandle(this.hoverPoint)?.cursor ?? "default";
+      return this.hitTestUniformScaleHandle(this.hoverPoint)?.cursor ?? "default";
     }
 
     if (this.state.activeTool !== null && this.state.activeTool !== "fill") {
@@ -795,7 +875,19 @@ export class CanvasView {
       return "crosshair";
     }
 
-    return this.hitTestScaleHandle(point)?.cursor ?? "nwse-resize";
+    if (this.state.activeTool === "scale") {
+      return this.hitTestUniformScaleHandle(point)?.cursor ?? "nwse-resize";
+    }
+
+    return this.hitTestFreeScaleHandle(point)?.cursor ?? "nwse-resize";
+  }
+
+  private getTransformKind(): TransformStart["kind"] {
+    if (this.state.activeTool === "rotate") {
+      return "rotate";
+    }
+
+    return this.state.activeTool === "scale" ? "uniformScale" : "freeScale";
   }
 
   private hitTestTopPrimitive(point: Point): PrimitiveHitTarget | null {
@@ -812,7 +904,7 @@ export class CanvasView {
     return null;
   }
 
-  private hitTestScaleHandle(point: Point): ScaleHandleHit | null {
+  private hitTestFreeScaleHandle(point: Point): ScaleHandleHit | null {
     const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
 
     if (selectedPrimitives.length !== 1) {
@@ -838,6 +930,30 @@ export class CanvasView {
 
     for (const handle of handles) {
       if (getDistance(localPoint, handle.point) <= radius) {
+        return { kind: handle.kind, cursor: handle.cursor };
+      }
+    }
+
+    return null;
+  }
+
+  private hitTestUniformScaleHandle(point: Point): ScaleHandleHit | null {
+    const bounds = this.getSelectedBounds();
+
+    if (!bounds) {
+      return null;
+    }
+
+    const radius = getSpriteHandleRadius(this.canvas);
+    const handles: Array<{ kind: ScaleHandleKind; point: Point; cursor: CanvasCursor }> = [
+      { kind: "topLeft", point: { x: bounds.minX, y: bounds.minY }, cursor: "nwse-resize" },
+      { kind: "topRight", point: { x: bounds.maxX, y: bounds.minY }, cursor: "nesw-resize" },
+      { kind: "bottomLeft", point: { x: bounds.minX, y: bounds.maxY }, cursor: "nesw-resize" },
+      { kind: "bottomRight", point: { x: bounds.maxX, y: bounds.maxY }, cursor: "nwse-resize" },
+    ];
+
+    for (const handle of handles) {
+      if (getDistance(point, handle.point) <= radius) {
         return { kind: handle.kind, cursor: handle.cursor };
       }
     }
@@ -901,7 +1017,7 @@ export class CanvasView {
       this.drawPrimitiveSelection(selectedPrimitive.primitive);
     }
 
-    if (selectedPrimitives.length > 1) {
+    if (selectedPrimitives.length > 1 || this.state.activeTool === "scale") {
       this.drawGroupSelection(selectedPrimitives.map((selectedPrimitive) => selectedPrimitive.primitive));
     }
   }
@@ -925,6 +1041,7 @@ export class CanvasView {
 
   private drawPrimitiveSelection(primitive: Primitive): void {
     const inset = 1 / this.getCanvasScale();
+    const height = getPrimitiveSelectionHeight(primitive);
 
     this.ctx.save();
     this.ctx.translate(primitive.x, primitive.y);
@@ -933,19 +1050,19 @@ export class CanvasView {
     this.ctx.lineWidth = 2 / this.getCanvasScale();
     this.ctx.setLineDash([4 / this.getCanvasScale(), 3 / this.getCanvasScale()]);
 
-    this.ctx.strokeRect(-primitive.w / 2 - inset, -primitive.h / 2 - inset, primitive.w + inset * 2, primitive.h + inset * 2);
+    this.ctx.strokeRect(-primitive.w / 2 - inset, -height / 2 - inset, primitive.w + inset * 2, height + inset * 2);
 
-    if (this.state.activeTool === "scale") {
-      this.drawScaleHandles(primitive);
+    if (this.state.activeTool === "transform") {
+      this.drawFreeScaleHandles(primitive);
     }
 
     this.ctx.restore();
   }
 
-  private drawScaleHandles(primitive: Primitive): void {
+  private drawFreeScaleHandles(primitive: Primitive): void {
     const radius = getSpriteHandleRadius(this.canvas);
     const halfW = primitive.w / 2;
-    const halfH = primitive.h / 2;
+    const halfH = getPrimitiveSelectionHeight(primitive) / 2;
 
     const handles: Point[] = [
       { x: -halfW, y: -halfH },
@@ -992,6 +1109,35 @@ export class CanvasView {
       bounds.maxX - bounds.minX + inset * 2,
       bounds.maxY - bounds.minY + inset * 2,
     );
+
+    if (this.state.activeTool === "scale") {
+      this.drawUniformScaleHandles(bounds);
+    }
+
+    this.ctx.restore();
+  }
+
+  private drawUniformScaleHandles(bounds: RectBounds): void {
+    const radius = getSpriteHandleRadius(this.canvas);
+    const handles: Point[] = [
+      { x: bounds.minX, y: bounds.minY },
+      { x: bounds.maxX, y: bounds.minY },
+      { x: bounds.minX, y: bounds.maxY },
+      { x: bounds.maxX, y: bounds.maxY },
+    ];
+
+    this.ctx.save();
+    this.ctx.fillStyle = "#0f766e";
+    this.ctx.strokeStyle = "#ffffff";
+    this.ctx.lineWidth = 1 / this.getCanvasScale();
+
+    for (const handle of handles) {
+      this.ctx.beginPath();
+      this.ctx.rect(handle.x - radius / 2, handle.y - radius / 2, radius, radius);
+      this.ctx.fill();
+      this.ctx.stroke();
+    }
+
     this.ctx.restore();
   }
 
@@ -1156,7 +1302,7 @@ function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
 
   if (primitive.kind === "circle") {
     const radiusX = primitive.w / 2;
-    const radiusY = primitive.h / 2;
+    const radiusY = (primitive.h > 0 ? primitive.h : primitive.w) / 2;
 
     if (radiusX <= 0 || radiusY <= 0) {
       return false;
@@ -1208,12 +1354,18 @@ function getPrimitivesBounds(primitives: Primitive[]): RectBounds | null {
 }
 
 function getPrimitiveBounds(primitive: Primitive): RectBounds {
+  const height = getPrimitiveSelectionHeight(primitive);
+
   return {
     minX: primitive.x - primitive.w / 2,
-    minY: primitive.y - primitive.h / 2,
+    minY: primitive.y - height / 2,
     maxX: primitive.x + primitive.w / 2,
-    maxY: primitive.y + primitive.h / 2,
+    maxY: primitive.y + height / 2,
   };
+}
+
+function getPrimitiveSelectionHeight(primitive: Primitive): number {
+  return primitive.kind === "circle" && primitive.h <= 0 ? primitive.w : primitive.h;
 }
 
 function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
@@ -1261,4 +1413,32 @@ function handleAffectsY(handle: ScaleHandleKind): boolean {
     handle === "bottomLeft" ||
     handle === "bottomRight"
   );
+}
+
+function scalePrimitiveFromStart(primitive: Primitive, start: Primitive, pivot: Point, factor: number): void {
+  primitive.x = toFiniteInteger(pivot.x + (start.x - pivot.x) * factor, start.x);
+  primitive.y = toFiniteInteger(pivot.y + (start.y - pivot.y) * factor, start.y);
+  primitive.w = toPositiveInteger(start.w * factor, start.w);
+  primitive.h = getScaledPrimitiveHeight(start, factor);
+  primitive.rotation = start.rotation;
+}
+
+function getScaledPrimitiveHeight(primitive: Primitive, factor: number): number {
+  if (primitive.kind === "circle" && primitive.h === 0) {
+    return 0;
+  }
+
+  return toPositiveInteger(primitive.h * factor, primitive.h);
+}
+
+function toFiniteInteger(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.round(value) : Math.round(fallback);
+}
+
+function toPositiveInteger(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return Math.max(1, Math.round(fallback));
+  }
+
+  return Math.max(1, Math.round(value));
 }

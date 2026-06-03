@@ -44,6 +44,8 @@ type SpriteEditorControls = {
   sendBackwardButton: HTMLButtonElement;
   bringForwardButton: HTMLButtonElement;
   bringToFrontButton: HTMLButtonElement;
+  scaleSpriteUpButton: HTMLButtonElement;
+  scaleSpriteDownButton: HTMLButtonElement;
   groupButton: HTMLButtonElement;
   ungroupButton: HTMLButtonElement;
   copyPrimitiveButton: HTMLButtonElement;
@@ -62,6 +64,7 @@ type SpriteEditorMount = AppElements & SpriteEditorControls;
 type SpriteAssetChangeListener = (sprite: SpriteAssetData) => void;
 
 const PASTE_OFFSET = 8;
+const spriteScaleStep = 1.1;
 const maximumCanvasSize = 1020;
 
 export class SpriteEditorController {
@@ -179,6 +182,8 @@ export class SpriteEditorController {
     mount.sendBackwardButton.addEventListener("click", () => this.moveSelectedLayer("backward"));
     mount.bringForwardButton.addEventListener("click", () => this.moveSelectedLayer("forward"));
     mount.bringToFrontButton.addEventListener("click", () => this.moveSelectedLayer("front"));
+    mount.scaleSpriteUpButton.addEventListener("click", () => this.scaleWholeSprite(spriteScaleStep));
+    mount.scaleSpriteDownButton.addEventListener("click", () => this.scaleWholeSprite(1 / spriteScaleStep));
     mount.groupButton.addEventListener("click", () => this.groupSelection());
     mount.ungroupButton.addEventListener("click", () => this.ungroupSelection());
     mount.copyPrimitiveButton.addEventListener("click", () => this.copySelectedPrimitive());
@@ -360,6 +365,12 @@ export class SpriteEditorController {
     if (matchesHotkey(event, "r")) {
       event.preventDefault();
       this.selectTool("rotate");
+      return true;
+    }
+
+    if (matchesHotkey(event, "t")) {
+      event.preventDefault();
+      this.selectTool("transform");
       return true;
     }
 
@@ -730,6 +741,31 @@ export class SpriteEditorController {
     this.canvasView?.render();
   }
 
+  private scaleWholeSprite(factor: number): void {
+    if (!Number.isFinite(factor) || factor <= 0) {
+      return;
+    }
+
+    const entries = getEditablePrimitiveNodeEntries(this.state.nodes).filter((entry) => !entry.locked);
+
+    if (entries.length === 0) {
+      return;
+    }
+
+    this.recordHistory();
+    const center = {
+      x: this.state.spriteWidth / 2,
+      y: this.state.spriteHeight / 2,
+    };
+
+    for (const entry of entries) {
+      scalePrimitiveAround(entry.command, center, factor);
+    }
+
+    this.state.redoStack = [];
+    this.canvasView?.render();
+  }
+
   private moveSelectedLayer(target: LayerMoveTarget): void {
     const selectedEntries = this.getSelectedEntries();
 
@@ -868,6 +904,8 @@ export class SpriteEditorController {
     this.mount.sendBackwardButton.disabled = selectedEntries.length === 0 || !this.isSameParentSelection(selectedEntries) || isAtBack;
     this.mount.bringForwardButton.disabled = selectedEntries.length === 0 || !this.isSameParentSelection(selectedEntries) || isAtFront;
     this.mount.bringToFrontButton.disabled = selectedEntries.length === 0 || !this.isSameParentSelection(selectedEntries) || isAtFront;
+    this.mount.scaleSpriteUpButton.disabled = getEditablePrimitiveNodeEntries(this.state.nodes).every((entry) => entry.locked);
+    this.mount.scaleSpriteDownButton.disabled = getEditablePrimitiveNodeEntries(this.state.nodes).every((entry) => entry.locked);
     this.mount.groupButton.disabled = !canGroup;
     this.mount.ungroupButton.disabled = !canUngroup;
     this.mount.copyPrimitiveButton.disabled = selectedEntries.length === 0;
@@ -913,6 +951,12 @@ export class SpriteEditorController {
   }
 
   private clearSelectionOrTool(): void {
+    if (this.canvasView?.cancelInteraction()) {
+      this.state.activeTool = null;
+      this.syncToolButtons();
+      return;
+    }
+
     if (this.state.activeTool !== null) {
       this.state.activeTool = null;
       this.syncToolButtons();
@@ -996,11 +1040,13 @@ export class SpriteEditorController {
   }
 
   private getPrimitiveBounds(primitive: Primitive): PrimitiveBounds {
+    const height = primitive.kind === "circle" && primitive.h <= 0 ? primitive.w : primitive.h;
+
     return {
       minX: primitive.x - primitive.w / 2,
-      minY: primitive.y - primitive.h / 2,
+      minY: primitive.y - height / 2,
       maxX: primitive.x + primitive.w / 2,
-      maxY: primitive.y + primitive.h / 2,
+      maxY: primitive.y + height / 2,
     };
   }
 
@@ -1204,6 +1250,7 @@ function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {
     value === "fill" ||
     value === "eyedropper" ||
     value === "rotate" ||
+    value === "transform" ||
     value === "scale"
   );
 }
@@ -1218,6 +1265,37 @@ function insertNodes(nodes: SceneNode[], insertedNodes: SceneNode[], index: numb
 
 function arraysEqual(left: SceneNode[], right: SceneNode[]): boolean {
   return left.length === right.length && left.every((node, index) => node === right[index]);
+}
+
+function scalePrimitiveAround(primitive: Primitive, center: { x: number; y: number }, factor: number): void {
+  const x = center.x + (primitive.x - center.x) * factor;
+  const y = center.y + (primitive.y - center.y) * factor;
+  const w = primitive.w * factor;
+
+  primitive.x = toFiniteInteger(x, primitive.x);
+  primitive.y = toFiniteInteger(y, primitive.y);
+  primitive.w = toPositiveInteger(w, primitive.w);
+  primitive.h = getScaledPrimitiveHeight(primitive, factor);
+}
+
+function getScaledPrimitiveHeight(primitive: Primitive, factor: number): number {
+  if (primitive.kind === "circle" && primitive.h === 0) {
+    return 0;
+  }
+
+  return toPositiveInteger(primitive.h * factor, primitive.h);
+}
+
+function toFiniteInteger(value: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.round(value) : Math.round(fallback);
+}
+
+function toPositiveInteger(value: number, fallback: number): number {
+  if (!Number.isFinite(value)) {
+    return Math.max(1, Math.round(fallback));
+  }
+
+  return Math.max(1, Math.round(value));
 }
 
 function matchesHotkey(event: KeyboardEvent, shortcut: string): boolean {

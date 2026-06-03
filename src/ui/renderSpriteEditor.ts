@@ -6,6 +6,7 @@ import {
   FlipHorizontal,
   FlipVertical,
   Group,
+  Maximize2,
   PaintBucket,
   Pipette,
   Redo2,
@@ -19,6 +20,8 @@ import {
   Triangle,
   Undo2,
   Ungroup,
+  ZoomIn,
+  ZoomOut,
 } from "lucide";
 import { SpriteEditorController } from "../sprites/app/spriteEditorController.js";
 import type { SpriteAssetData } from "../model/assets.js";
@@ -76,6 +79,8 @@ function createSpriteMount(): {
   sendBackwardButton: HTMLButtonElement;
   bringForwardButton: HTMLButtonElement;
   bringToFrontButton: HTMLButtonElement;
+  scaleSpriteUpButton: HTMLButtonElement;
+  scaleSpriteDownButton: HTMLButtonElement;
   groupButton: HTMLButtonElement;
   ungroupButton: HTMLButtonElement;
   copyPrimitiveButton: HTMLButtonElement;
@@ -119,6 +124,7 @@ function createSpriteMount(): {
     createToolButton("fill", PaintBucket, "Fill"),
     createToolButton("eyedropper", Pipette, "Pick color"),
     createToolButton("rotate", RotateCw, "Rotate"),
+    createToolButton("transform", Maximize2, "Transform"),
     createToolButton("scale", Scaling, "Scale"),
   ];
   const toolButtons = [...primitiveToolButtons, ...editToolButtons];
@@ -164,6 +170,8 @@ function createSpriteMount(): {
   const sendBackwardButton = createSpriteButton(StepBack, "Send backward");
   const bringForwardButton = createSpriteButton(StepForward, "Bring forward");
   const bringToFrontButton = createSpriteButton(BringToFront, "Bring to front");
+  const scaleSpriteUpButton = createSpriteButton(ZoomIn, "Scale Sprite Up");
+  const scaleSpriteDownButton = createSpriteButton(ZoomOut, "Scale Sprite Down");
   const transformSection = createElement("section", "sprite-tool-section sprite-transform-section");
   const transformGrid = createElement("div", "sprite-action-grid");
   transformGrid.append(
@@ -173,6 +181,8 @@ function createSpriteMount(): {
     bringToFrontButton,
     sendBackwardButton,
     bringForwardButton,
+    scaleSpriteUpButton,
+    scaleSpriteDownButton,
   );
   transformSection.append(selectionSummary, transformGrid);
 
@@ -245,6 +255,8 @@ function createSpriteMount(): {
     sendBackwardButton,
     bringForwardButton,
     bringToFrontButton,
+    scaleSpriteUpButton,
+    scaleSpriteDownButton,
     groupButton,
     ungroupButton,
     copyPrimitiveButton,
