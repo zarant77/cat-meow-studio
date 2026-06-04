@@ -1,6 +1,7 @@
 import {
   CircleHelp,
   Download,
+  Type,
   Image,
   Maximize2,
   Music,
@@ -71,6 +72,7 @@ function renderHeader(mode: AppMode, shellActions: RenderActions): HTMLElement {
     createModeButton(RotateCw, "Animator", "animator", mode, shellActions),
     createModeButton(Music, "Music", "music", mode, shellActions),
     createModeButton(Volume2, "SFX", "sfx", mode, shellActions),
+    createModeButton(Type, "Font", "font", mode, shellActions),
   );
 
   const actions = createElement("div", "header-actions");

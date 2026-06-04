@@ -1,0 +1,147 @@
+.font-workspace {
+  grid-template-columns: 190px minmax(600px, 1fr) 300px;
+}
+
+.font-glyph-panel,
+.font-inspector-panel {
+  overflow-y: auto;
+}
+
+.font-panel-heading,
+.font-line-row,
+.font-tool-row,
+.font-top-toolbar,
+.font-preview-controls {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.font-panel-heading {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.font-glyph-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.font-glyph-item {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  align-items: center;
+  min-width: 0;
+  padding: 3px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-text);
+}
+
+.font-glyph-item:hover,
+.font-glyph-item.is-active,
+.font-line-row.is-active {
+  border-color: var(--color-border-strong);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+.font-glyph-thumb {
+  width: 40px;
+  height: 40px;
+}
+
+.font-editor-area {
+  gap: 8px;
+}
+
+.font-top-toolbar {
+  flex-wrap: wrap;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.font-top-toolbar .field {
+  width: 122px;
+  margin-top: 0;
+}
+
+.font-top-toolbar .field:first-child {
+  width: 170px;
+}
+
+.font-tool-row {
+  flex-wrap: wrap;
+}
+
+.font-canvas-wrap {
+  display: grid;
+  flex: 1 1 auto;
+  min-height: 0;
+  place-items: center;
+  overflow: auto;
+}
+
+.font-canvas {
+  display: block;
+  width: min(100%, 580px);
+  aspect-ratio: 1;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  touch-action: none;
+}
+
+.font-inspector-panel > h2,
+.font-inspector-panel .font-panel-heading,
+.font-endpoint-section {
+  margin-top: 14px;
+}
+
+.font-inspector-panel > h2:first-child {
+  margin-top: 0;
+}
+
+.font-line-list {
+  display: grid;
+  gap: 5px;
+}
+
+.font-line-row {
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+}
+
+.font-line-row input {
+  font-family: monospace;
+  text-transform: uppercase;
+}
+
+.font-endpoint-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.font-preview-controls {
+  flex: 0 0 auto;
+  width: 390px;
+}
+
+.font-preview-canvas {
+  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+  height: 64px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 1100px) {
+  .font-workspace {
+    grid-template-columns: 150px minmax(500px, 1fr) 260px;
+  }
+}

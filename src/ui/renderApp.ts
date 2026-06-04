@@ -6,6 +6,7 @@ import { renderAppShell } from "./renderShell.js";
 import { renderSfxSurface } from "./renderSfxEditor.js";
 import { destroyAnimatorWorkspace, renderAnimatorSurface } from "./animatorView.js";
 import { destroySpritesWorkspace, renderSpriteEditorSurface } from "./renderSpriteEditor.js";
+import { renderFontEditorSurface } from "./renderFontEditor.js";
 
 export type { AppActions, AppMode, AppStatus, MusicRenderActions, RenderActions };
 
@@ -64,6 +65,12 @@ function renderModeSurface(
   if (mode === "animator") {
     destroySpritesWorkspace();
     return renderAnimatorSurface();
+  }
+
+  if (mode === "font") {
+    destroySpritesWorkspace();
+    destroyAnimatorWorkspace();
+    return renderFontEditorSurface(actions.shell);
   }
 
   destroySpritesWorkspace();

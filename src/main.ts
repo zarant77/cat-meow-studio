@@ -1,10 +1,12 @@
 import { AudioPreview } from "./audio/audioPreview.js";
 import { generateMusicSamples } from "./audio/musicGenerator.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
+import { exportFontJson } from "./export/exportFontJson.js";
 import { exportSpriteJson } from "./export/exportSpriteJson.js";
 import { exportSoundJson } from "./export/exportSoundJson.js";
 import { importAnimationJson } from "./animation/animationJson.js";
 import { importMusicJson } from "./import/importMusicJson.js";
+import { importFontJson } from "./import/importFontJson.js";
 import { importSpriteJson } from "./import/importSpriteJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
 import type { AssetKind, ProjectAsset } from "./model/assets.js";
@@ -69,6 +71,13 @@ import {
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
 import {
+  createNewFont,
+  getCurrentFont,
+  handleFontEditorKeyboardShortcut,
+  replaceCurrentFont,
+  setFontEditorChangeListener,
+} from "./ui/renderFontEditor.js";
+import {
   findProjectAsset,
   getFirstProjectAsset,
   getProject,
@@ -102,6 +111,9 @@ const legacyProjectStorageKeys = [
 
 const actions: RenderActions = {
   undo() {
+    if (activeMode === "font") {
+      return;
+    }
     if (activeMode === "music" && undoMusic()) {
       saveCurrentMusicProject();
       render();
@@ -119,6 +131,9 @@ const actions: RenderActions = {
     }
   },
   redo() {
+    if (activeMode === "font") {
+      return;
+    }
     if (activeMode === "music" && redoMusic()) {
       saveCurrentMusicProject();
       render();
@@ -136,7 +151,7 @@ const actions: RenderActions = {
     }
   },
   canUndo() {
-    if (activeMode === "animator") {
+    if (activeMode === "animator" || activeMode === "font") {
       return false;
     }
 
@@ -151,7 +166,7 @@ const actions: RenderActions = {
     return canUndoSpriteEditor();
   },
   canRedo() {
-    if (activeMode === "animator") {
+    if (activeMode === "animator" || activeMode === "font") {
       return false;
     }
 
@@ -197,6 +212,11 @@ const actions: RenderActions = {
     void toggleFullscreen();
   },
   createNewProject() {
+    if (activeMode === "font") {
+      createNewFont();
+      markCurrentModeSaved();
+      return;
+    }
     if (activeMode === "music") {
       createNewMusicProject();
       renderAfterMusicChange();
@@ -336,6 +356,8 @@ const appActions: AppActions = {
   music: musicActions,
 };
 
+setFontEditorChangeListener(render);
+
 function render(): void {
   if (!(app instanceof HTMLElement)) {
     throw new Error("Cat Meow root element was not found");
@@ -352,6 +374,12 @@ function render(): void {
 }
 
 function createFreshSceneForMode(mode: AppMode): void {
+  if (mode === "font") {
+    createNewFont();
+    switchMode("font");
+    markCurrentModeSaved();
+    return;
+  }
   if (mode === "animator") {
     switchMode("animator");
     ensureCurrentModeSnapshot();
@@ -428,7 +456,22 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
     const importKind = detectJsonAssetKind(text);
 
     if (importKind === null) {
-      showStatus('JSON asset must be a sprite, animation, music, or sfx file.', "error");
+      showStatus('JSON asset must be a sprite, animation, font, music, or sfx file.', "error");
+      return;
+    }
+
+    if (importKind === "font") {
+      const fontResult = importFontJson(text);
+
+      if (!fontResult.ok) {
+        showStatus(fontResult.error, "error");
+        return;
+      }
+
+      replaceCurrentFont(fontResult.font);
+      switchMode("font");
+      showStatus(`Imported ${fontResult.font.id}.font.json`, "success");
+      markCurrentModeSaved();
       return;
     }
 
@@ -498,7 +541,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
   }
 }
 
-function detectJsonAssetKind(text: string): AssetKind | "animation" | null {
+function detectJsonAssetKind(text: string): AssetKind | "animation" | "font" | null {
   let parsed: unknown;
 
   try {
@@ -521,6 +564,10 @@ function detectJsonAssetKind(text: string): AssetKind | "animation" | null {
 
   if (parsed.type === "music") {
     return "music";
+  }
+
+  if (parsed.type === "vector" && parsed.gridSize === 16 && Array.isArray(parsed.glyphs)) {
+    return "font";
   }
 
   if (parsed.type === "sfx" || parsed.type === "sound") {
@@ -576,6 +623,9 @@ function syncCurrentAssets(): void {
 }
 
 function syncActiveAsset(): void {
+  if (activeMode === "font") {
+    return;
+  }
   if (activeMode === "music") {
     syncCurrentMusicAsset();
     return;
@@ -625,6 +675,10 @@ function modeToAssetKind(mode: AppMode): AssetKind {
     return "sprite";
   }
 
+  if (mode === "font") {
+    return "sprite";
+  }
+
   return mode;
 }
 
@@ -647,6 +701,10 @@ function routeToMode(route: string): AppMode | null {
 
   if (route === "sfx") {
     return "sfx";
+  }
+
+  if (route === "font" || route === "fonts") {
+    return "font";
   }
 
   return null;
@@ -683,6 +741,20 @@ function boot(): void {
 }
 
 function exportJsonForMode(mode: AppMode): void {
+  if (mode === "font") {
+    const currentFont = getCurrentFont();
+    const source = exportFontJson(currentFont);
+
+    if (source === null) {
+      showStatus("Font validation failed. Fix invalid metadata or glyph data before exporting.", "error");
+      return;
+    }
+
+    downloadFile(`${currentFont.id}.font.json`, source, "application/json;charset=utf-8");
+    markCurrentModeSaved();
+    showStatus(`Exported ${currentFont.id}.font.json`, "success");
+    return;
+  }
   if (mode === "animator") {
     if (exportCurrentAnimatorJson()) {
       markCurrentModeSaved();
@@ -737,6 +809,10 @@ function getModeSnapshot(mode: AppMode): string {
 
   if (mode === "music") {
     return JSON.stringify(getCurrentMusicProject());
+  }
+
+  if (mode === "font") {
+    return JSON.stringify(getCurrentFont());
   }
 
   return JSON.stringify(getCurrentProject());
@@ -824,6 +900,10 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
     return;
   }
 
+  if (activeMode === "font" && !isTextEntryTarget(event.target) && handleFontEditorKeyboardShortcut(event)) {
+    return;
+  }
+
   if (activeMode === "sprites" && isTextEntryTarget(event.target)) {
     return;
   }
@@ -894,6 +974,9 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
 }
 
 function getImportErrorMessage(): string {
+  if (activeMode === "font") {
+    return "The font file could not be imported.";
+  }
   if (activeMode === "music") {
     return "The music file could not be imported.";
   }
