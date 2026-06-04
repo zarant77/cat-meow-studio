@@ -88,10 +88,6 @@ function createSpriteMount(): {
   deletePrimitiveButton: HTMLButtonElement;
   undoButton: HTMLButtonElement;
   redoButton: HTMLButtonElement;
-  clearButton: HTMLButtonElement;
-  clearDialog: HTMLDialogElement;
-  clearCancelButton: HTMLButtonElement;
-  clearConfirmButton: HTMLButtonElement;
   statusElement: HTMLElement;
 } {
   const assetPanel = renderAssetSidebarPanel("sprites-asset-panel toolbar");
@@ -116,29 +112,21 @@ function createSpriteMount(): {
   const backgroundColorButton = createColorSwatch("background", "Background color. Click to select; click again to edit.");
 
   const primitiveToolButtons = [
-    createToolButton("rect", Square, "Rectangle"),
-    createToolButton("circle", Circle, "Circle"),
-    createToolButton("triangle", Triangle, "Triangle"),
+    createToolButton("rect", Square, "Rectangle (1)"),
+    createToolButton("circle", Circle, "Circle (2)"),
+    createToolButton("triangle", Triangle, "Triangle (3)"),
   ];
   const editToolButtons = [
-    createToolButton("fill", PaintBucket, "Fill"),
-    createToolButton("eyedropper", Pipette, "Pick color"),
-    createToolButton("rotate", RotateCw, "Rotate"),
-    createToolButton("transform", Maximize2, "Transform"),
-    createToolButton("scale", Scaling, "Scale"),
+    createToolButton("fill", PaintBucket, "Fill (F)"),
+    createToolButton("eyedropper", Pipette, "Pick color (I)"),
+    createToolButton("rotate", RotateCw, "Rotate (R)"),
+    createToolButton("transform", Maximize2, "Transform (T)"),
+    createToolButton("scale", Scaling, "Scale (S)"),
   ];
   const toolButtons = [...primitiveToolButtons, ...editToolButtons];
 
-  const undoButton = createSpriteButton(Undo2, "Undo");
-  const redoButton = createSpriteButton(Redo2, "Redo");
-  const clearButton = createSpriteButton(Trash2, "Clear sprite");
-  const clearDialog = createClearDialog();
-  const clearCancelButton = clearDialog.querySelector<HTMLButtonElement>("[data-clear-cancel]");
-  const clearConfirmButton = clearDialog.querySelector<HTMLButtonElement>("[data-clear-confirm]");
-
-  if (clearCancelButton === null || clearConfirmButton === null) {
-    throw new Error("Sprite clear dialog controls were not found.");
-  }
+  const undoButton = createSpriteButton(Undo2, "Undo (Ctrl/Cmd+Z)");
+  const redoButton = createSpriteButton(Redo2, "Redo (Ctrl/Cmd+Shift+Z)");
 
   const spriteFields = createElement("section", "sprite-tool-section");
   spriteFields.append(
@@ -164,12 +152,12 @@ function createSpriteMount(): {
   colorSection.append(createTextElement("h2", "Color"), colorControl);
 
   const selectionSummary = createTextElement("h2", "Selected: none", "sprite-selection-summary");
-  const flipHorizontalButton = createSpriteButton(FlipHorizontal, "Flip horizontal");
-  const flipVerticalButton = createSpriteButton(FlipVertical, "Flip vertical");
-  const sendToBackButton = createSpriteButton(SendToBack, "Send to back");
-  const sendBackwardButton = createSpriteButton(StepBack, "Send backward");
-  const bringForwardButton = createSpriteButton(StepForward, "Bring forward");
-  const bringToFrontButton = createSpriteButton(BringToFront, "Bring to front");
+  const flipHorizontalButton = createSpriteButton(FlipHorizontal, "Flip horizontal (H)");
+  const flipVerticalButton = createSpriteButton(FlipVertical, "Flip vertical (V)");
+  const sendToBackButton = createSpriteButton(SendToBack, "Send to back (Shift+[)");
+  const sendBackwardButton = createSpriteButton(StepBack, "Send backward ([)");
+  const bringForwardButton = createSpriteButton(StepForward, "Bring forward (])");
+  const bringToFrontButton = createSpriteButton(BringToFront, "Bring to front (Shift+])");
   const scaleSpriteUpButton = createSpriteButton(ZoomIn, "Scale Sprite Up");
   const scaleSpriteDownButton = createSpriteButton(ZoomOut, "Scale Sprite Down");
   const transformSection = createElement("section", "sprite-tool-section sprite-transform-section");
@@ -188,10 +176,10 @@ function createSpriteMount(): {
 
   const historySection = createElement("section", "sprite-tool-section");
   const historyRow = createElement("div", "sprite-action-row");
-  historyRow.append(undoButton, redoButton, clearButton);
+  historyRow.append(undoButton, redoButton);
   historySection.append(createTextElement("h2", "Actions"), historyRow);
 
-  assetPanel.append(primitiveToolSection, editToolSection, colorSection, transformSection, historySection, clearDialog);
+  assetPanel.append(primitiveToolSection, editToolSection, colorSection, transformSection, historySection);
 
   const canvasWrap = createElement("div", "sprite-canvas-wrap");
   const canvas = createElement("canvas", "sprite-canvas");
@@ -200,9 +188,9 @@ function createSpriteMount(): {
 
   const groupButton = createSpriteButton(Group, "Group selected primitives", "sprite-icon-button");
   const ungroupButton = createSpriteButton(Ungroup, "Ungroup selected group", "sprite-icon-button");
-  const copyPrimitiveButton = createSpriteButton(Copy, "Copy selected primitives", "sprite-icon-button");
-  const pastePrimitiveButton = createSpriteButton(ClipboardPaste, "Paste primitives", "sprite-icon-button");
-  const deletePrimitiveButton = createSpriteButton(Trash2, "Delete selected primitives", "sprite-icon-button danger");
+  const copyPrimitiveButton = createSpriteButton(Copy, "Copy selected primitives (Ctrl/Cmd+C)", "sprite-icon-button");
+  const pastePrimitiveButton = createSpriteButton(ClipboardPaste, "Paste primitives (Ctrl/Cmd+V)", "sprite-icon-button");
+  const deletePrimitiveButton = createSpriteButton(Trash2, "Delete selected primitives (Delete)", "sprite-icon-button danger");
 
   const tabBar = createElement("div", "sprite-inspector-tabs");
   const primitivesTab = createSpriteTabButton("Primitives", "primitives");
@@ -264,10 +252,6 @@ function createSpriteMount(): {
     deletePrimitiveButton,
     undoButton,
     redoButton,
-    clearButton,
-    clearDialog,
-    clearCancelButton,
-    clearConfirmButton,
     statusElement,
   };
 }
@@ -294,6 +278,10 @@ export function handleSpriteEditorKeyboardShortcut(event: KeyboardEvent): boolea
 
 export function syncSpriteEditorAsset(): void {
   upsertCurrentProjectAsset(createSpriteProjectAsset(spriteEditorController.getSpriteAssetData()));
+}
+
+export function getCurrentSpriteEditorAsset(): SpriteAssetData {
+  return spriteEditorController.getSpriteAssetData();
 }
 
 export function createNewSpriteEditorAsset(spriteId: string): void {
@@ -375,25 +363,4 @@ function createSpriteTabButton(label: string, tab: "primitives" | "properties"):
   });
 
   return button;
-}
-
-function createClearDialog(): HTMLDialogElement {
-  const dialog = createElement("dialog", "sprite-clear-dialog");
-  const panel = createElement("form", "sprite-clear-dialog-panel");
-  panel.method = "dialog";
-  panel.append(
-    createTextElement("h2", "Clear sprite?"),
-    createTextElement("p", "This will remove all primitives from the current sprite."),
-  );
-
-  const actions = createElement("div", "sprite-clear-dialog-actions");
-  const cancelButton = createSpriteButton("Cancel", "Cancel clear");
-  const confirmButton = createSpriteButton(Trash2, "Clear sprite", "sprite-button danger");
-  cancelButton.dataset.clearCancel = "true";
-  confirmButton.dataset.clearConfirm = "true";
-  actions.append(cancelButton, confirmButton);
-  panel.append(actions);
-  dialog.append(panel);
-
-  return dialog;
 }

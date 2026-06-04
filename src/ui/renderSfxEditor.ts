@@ -25,9 +25,9 @@ export function renderSfxSurface(state: EditorState, actions: RenderActions): Mo
 function renderSfxToolbar(actions: RenderActions): HTMLElement {
   const panel = renderAssetSidebarPanel("sfx-toolbar-panel toolbar");
   const buttons: Array<[AppIcon, string, () => void]> = [
-    [Undo2, "Undo", actions.undo],
-    [Redo2, "Redo", actions.redo],
-    [Play, "Play preview", actions.playSound],
+    [Undo2, "Undo (Ctrl/Cmd+Z)", actions.undo],
+    [Redo2, "Redo (Ctrl/Cmd+Shift+Z)", actions.redo],
+    [Play, "Play preview (Space)", actions.playSound],
     [Square, "Stop preview", actions.stopSound],
     [Plus, "Add command", actions.addCommand],
   ];

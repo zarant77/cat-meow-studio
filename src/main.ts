@@ -52,6 +52,7 @@ import {
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
 import {
   exportCurrentAnimatorJson,
+  getCurrentAnimatorJson,
   replaceAnimatorAnimation,
   stopAnimatorPlayback,
   toggleAnimatorPlayback,
@@ -60,6 +61,7 @@ import {
   canRedoSpriteEditor,
   canUndoSpriteEditor,
   createNewSpriteEditorAsset,
+  getCurrentSpriteEditorAsset,
   handleSpriteEditorKeyboardShortcut,
   replaceSpriteEditorAsset,
   redoSpriteEditor,
@@ -89,6 +91,7 @@ let activeMode: AppMode = getModeFromLocationHash() ?? "sprites";
 let status: AppStatus | null = null;
 let statusTimeoutId: number | null = null;
 let isSyncingHash = false;
+const savedModeSnapshots = new Map<AppMode, string>();
 const legacyProjectStorageKeys = [
   "cat-meow-studio:project",
   "cat-meow:sound-project",
@@ -207,6 +210,10 @@ const actions: RenderActions = {
     }
   },
   openMode(mode) {
+    if (hasUnsavedChanges() && !window.confirm("You have unsaved changes. Continue without exporting them?")) {
+      return;
+    }
+
     createFreshSceneForMode(mode);
   },
   clearSavedProject() {
@@ -347,12 +354,14 @@ function render(): void {
 function createFreshSceneForMode(mode: AppMode): void {
   if (mode === "animator") {
     switchMode("animator");
+    ensureCurrentModeSnapshot();
     return;
   }
 
   if (mode === "sprites") {
     createNewSpriteEditorAsset("sprite");
     switchMode("sprites");
+    markCurrentModeSaved();
     return;
   }
 
@@ -361,12 +370,14 @@ function createFreshSceneForMode(mode: AppMode): void {
     updateMusicProject({ id: "music" });
     switchMode("music");
     render();
+    markCurrentModeSaved();
     return;
   }
 
   createBlankProject();
   updateProjectId("sound");
   switchMode("sfx");
+  markCurrentModeSaved();
 }
 
 function switchMode(mode: AppMode): void {
@@ -435,6 +446,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       switchMode("music");
       showStatus(`Imported ${musicResult.project.id}.music.json`, "success");
       render();
+      markCurrentModeSaved();
       return;
     }
 
@@ -449,6 +461,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       replaceSpriteEditorAsset(spriteResult.sprite);
       switchMode("sprites");
       showStatus(`Imported ${spriteResult.sprite.spriteId}.sprite.json`, "success");
+      markCurrentModeSaved();
       return;
     }
 
@@ -463,6 +476,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       replaceAnimatorAnimation(animationResult.animationFile);
       switchMode("animator");
       showStatus(`Imported ${animationResult.animationFile.id}.anim.json`, "success");
+      markCurrentModeSaved();
       return;
     }
 
@@ -478,6 +492,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
     switchMode("sfx");
     showStatus(`Imported ${soundResult.project.id}.sfx.json`, "success");
     render();
+    markCurrentModeSaved();
   } catch {
     showStatus(getImportErrorMessage(), "error");
   }
@@ -529,6 +544,7 @@ function importJsonForAnimator(text: string): void {
     replaceAnimatorAnimation(animationResult.animationFile);
     switchMode("animator");
     showStatus(`Imported ${animationResult.animationFile.id}.anim.json`, "success");
+    markCurrentModeSaved();
     return;
   }
 
@@ -663,11 +679,13 @@ function boot(): void {
   resetProjectState({ emit: false });
   syncHashForMode(activeMode);
   render();
+  markCurrentModeSaved();
 }
 
 function exportJsonForMode(mode: AppMode): void {
   if (mode === "animator") {
     if (exportCurrentAnimatorJson()) {
+      markCurrentModeSaved();
       showStatus("Exported animation JSON.", "success");
     }
     return;
@@ -687,7 +705,41 @@ function exportJsonForKind(kind: AssetKind): void {
 
   if (!downloadAssetJson(asset)) {
     showStatus(`Could not export ${asset.name}.`, "error");
+    return;
   }
+
+  markCurrentModeSaved();
+}
+
+function hasUnsavedChanges(): boolean {
+  const savedSnapshot = savedModeSnapshots.get(activeMode);
+  return savedSnapshot !== undefined && savedSnapshot !== getModeSnapshot(activeMode);
+}
+
+function markCurrentModeSaved(): void {
+  savedModeSnapshots.set(activeMode, getModeSnapshot(activeMode));
+}
+
+function ensureCurrentModeSnapshot(): void {
+  if (!savedModeSnapshots.has(activeMode)) {
+    markCurrentModeSaved();
+  }
+}
+
+function getModeSnapshot(mode: AppMode): string {
+  if (mode === "sprites") {
+    return JSON.stringify(getCurrentSpriteEditorAsset());
+  }
+
+  if (mode === "animator") {
+    return getCurrentAnimatorJson();
+  }
+
+  if (mode === "music") {
+    return JSON.stringify(getCurrentMusicProject());
+  }
+
+  return JSON.stringify(getCurrentProject());
 }
 
 function downloadAssetJson(asset: ProjectAsset): boolean {
@@ -884,6 +936,7 @@ window.addEventListener("hashchange", () => {
   activeMode = mode;
   preview.stop();
   render();
+  ensureCurrentModeSnapshot();
 });
 
 document.addEventListener("keydown", handleKeyboardShortcut);

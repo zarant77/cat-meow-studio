@@ -1,0 +1,146 @@
+@import "./theme.css";
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: #100d09;
+  color: var(--color-text);
+  font-family: var(--font-main);
+}
+
+body {
+  margin: 0;
+}
+
+.help-shell {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 920px);
+  gap: 48px;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 32px;
+}
+
+.help-sidebar {
+  position: sticky;
+  top: 32px;
+  align-self: start;
+}
+
+.help-brand,
+.help-sidebar nav {
+  display: flex;
+  flex-direction: column;
+}
+
+.help-brand {
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+  color: var(--color-text);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+.help-brand img {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
+.help-sidebar nav {
+  gap: 8px;
+}
+
+.help-sidebar nav a {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: 0.84rem;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.help-sidebar nav a:hover {
+  border-color: var(--color-border-strong);
+  color: var(--color-accent);
+}
+
+.help-content {
+  min-width: 0;
+}
+
+.help-document {
+  margin-bottom: 72px;
+  scroll-margin-top: 24px;
+}
+
+.help-document h1 {
+  color: var(--color-accent);
+  font-size: clamp(2rem, 5vw, 3.5rem);
+}
+
+.help-document h2 {
+  margin-top: 40px;
+  color: var(--color-accent-strong);
+}
+
+.help-document h3,
+.help-document h4,
+.help-document h5,
+.help-document h6 {
+  margin-top: 28px;
+}
+
+.help-document p,
+.help-document li {
+  color: var(--color-text-muted);
+  line-height: 1.7;
+}
+
+.help-document a {
+  color: var(--color-accent);
+}
+
+.help-document code {
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.help-document :not(pre) > code {
+  padding: 2px 5px;
+}
+
+.help-document pre {
+  overflow-x: auto;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.28);
+  line-height: 1.55;
+}
+
+.help-document hr {
+  margin: 36px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+@media (max-width: 800px) {
+  .help-shell {
+    grid-template-columns: 1fr;
+    gap: 28px;
+    padding: 20px;
+  }
+
+  .help-sidebar {
+    position: static;
+  }
+}

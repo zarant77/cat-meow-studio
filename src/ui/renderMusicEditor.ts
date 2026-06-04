@@ -79,9 +79,9 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
 function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
   const panel = renderAssetSidebarPanel("music-toolbar-panel toolbar");
   const buttons: Array<[AppIcon, string, () => void]> = [
-    [Undo2, "Undo", shellActions.undo],
-    [Redo2, "Redo", shellActions.redo],
-    [Play, "Play preview", shellActions.playSound],
+    [Undo2, "Undo (Ctrl/Cmd+Z)", shellActions.undo],
+    [Redo2, "Redo (Ctrl/Cmd+Shift+Z)", shellActions.redo],
+    [Play, "Play preview (Space)", shellActions.playSound],
     [Square, "Stop preview", shellActions.stopSound],
     [Plus, "Add note", actions.addNote],
     [CirclePlus, "Add instrument", actions.addInstrument],
@@ -140,7 +140,7 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
   const selectedInstrument =
     state.selectedInstrumentIndex === null ? undefined : state.project.instruments[state.selectedInstrumentIndex];
   const title = createElement("div", "panel-title");
-  const deleteButton = createIconButton(Trash2, "Delete selected note", "icon-button danger");
+  const deleteButton = createIconButton(Trash2, "Delete selected note (Delete)", "icon-button danger");
   deleteButton.disabled = selectedNote === null;
   deleteButton.addEventListener("click", actions.deleteNote);
   title.append(createTextElement("h2", "Music edit"), deleteButton);

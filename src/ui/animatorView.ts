@@ -57,6 +57,10 @@ export function exportCurrentAnimatorJson(): boolean {
   return getAnimatorController().exportAnimation();
 }
 
+export function getCurrentAnimatorJson(): string {
+  return getAnimatorController().getAnimationJson();
+}
+
 export function toggleAnimatorPlayback(): void {
   getAnimatorController().togglePlayback();
 }
@@ -190,6 +194,10 @@ class AnimatorController {
     return true;
   }
 
+  getAnimationJson(): string {
+    return exportAnimationJson(this.animationFile);
+  }
+
   togglePlayback(): void {
     if (this.playing) {
       this.pausePlayback();
@@ -220,7 +228,7 @@ class AnimatorController {
     const createButton = createIconButton(Plus, "Create animation", "sprite-button");
     const duplicateButton = createIconButton(Copy, "Duplicate animation", "sprite-button");
     const deleteButton = createIconButton(Trash2, "Delete animation", "sprite-button danger");
-    const playButton = createIconButton(this.playing ? Pause : Play, this.playing ? "Pause" : "Play", "sprite-button");
+    const playButton = createIconButton(this.playing ? Pause : Play, `${this.playing ? "Pause" : "Play"} (Space)`, "sprite-button");
     const stopButton = createIconButton(Square, "Stop", "sprite-button");
 
     importSpriteButton.addEventListener("click", () => mount.spriteInput.click());

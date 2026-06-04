@@ -814,43 +814,6 @@ input[data-field="spriteColor"] {
   font-style: italic;
 }
 
-.sprite-clear-dialog {
-  width: min(360px, calc(100vw - 32px));
-  padding: 0;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-surface);
-  color: var(--color-text);
-}
-
-.sprite-clear-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.56);
-}
-
-.sprite-clear-dialog-panel {
-  display: grid;
-  gap: 10px;
-  padding: 16px;
-}
-
-.sprite-clear-dialog-panel h2 {
-  color: var(--color-text);
-  font-size: 1rem;
-}
-
-.sprite-clear-dialog-panel p {
-  color: var(--color-text-muted);
-  font-size: 0.86rem;
-  line-height: 1.35;
-}
-
-.sprite-clear-dialog-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 4px;
-}
-
 @media (max-width: 1180px) {
   .field-grid {
     grid-template-columns: 1fr;

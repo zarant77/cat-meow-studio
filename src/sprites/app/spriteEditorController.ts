@@ -53,10 +53,6 @@ type SpriteEditorControls = {
   deletePrimitiveButton: HTMLButtonElement;
   undoButton: HTMLButtonElement;
   redoButton: HTMLButtonElement;
-  clearButton: HTMLButtonElement;
-  clearDialog: HTMLDialogElement;
-  clearCancelButton: HTMLButtonElement;
-  clearConfirmButton: HTMLButtonElement;
   statusElement: HTMLElement;
 };
 
@@ -191,12 +187,6 @@ export class SpriteEditorController {
     mount.deletePrimitiveButton.addEventListener("click", () => this.deleteSelectedPrimitive());
     mount.undoButton.addEventListener("click", () => this.undo());
     mount.redoButton.addEventListener("click", () => this.redo());
-    mount.clearButton.addEventListener("click", () => this.requestClear());
-    mount.clearCancelButton.addEventListener("click", () => mount.clearDialog.close());
-    mount.clearConfirmButton.addEventListener("click", () => {
-      mount.clearDialog.close();
-      this.clearSprite();
-    });
   }
 
   canUndo(): boolean {
@@ -240,10 +230,6 @@ export class SpriteEditorController {
   }
 
   handleKeyboardShortcut(event: KeyboardEvent): boolean {
-    if (this.mount?.clearDialog.open === true) {
-      return true;
-    }
-
     if (isEditableTarget(event.target)) {
       return false;
     }
@@ -585,26 +571,6 @@ export class SpriteEditorController {
     this.canvasView?.render();
   }
 
-  private clearSprite(): void {
-    if (this.state.nodes.length === 0) {
-      return;
-    }
-
-    this.recordHistory();
-    this.state.nodes = [];
-    this.state.redoStack = [];
-    this.state.selectedNodeIds = [];
-    this.canvasView?.render();
-  }
-
-  private requestClear(): void {
-    if (this.state.nodes.length === 0 || !this.mount) {
-      return;
-    }
-
-    this.mount.clearDialog.showModal();
-  }
-
   private toggleNodeVisibility(nodeId: string): void {
     const entry = this.getNodeEntry(nodeId);
 
@@ -913,8 +879,6 @@ export class SpriteEditorController {
     this.mount.pastePrimitiveButton.disabled = this.nodeClipboard.length === 0;
     this.mount.undoButton.disabled = this.state.undoStack.length === 0;
     this.mount.redoButton.disabled = this.state.redoStack.length === 0;
-    this.mount.clearButton.disabled = this.state.nodes.length === 0;
-
     if (selectedEntries.length === 0) {
       this.mount.selectionSummary.textContent = "Selected: none";
     } else if (selectedEntries.length === 1 && selectedGroupCount === 1) {

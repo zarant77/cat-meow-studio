@@ -1,4 +1,5 @@
 import {
+  CircleHelp,
   Download,
   Image,
   Maximize2,
@@ -73,16 +74,19 @@ function renderHeader(mode: AppMode, shellActions: RenderActions): HTMLElement {
   );
 
   const actions = createElement("div", "header-actions");
-  const importButton = createHeaderButton(Upload, "Import", "Import JSON asset");
-  const exportButton = createHeaderButton(Download, "Export", "Export current asset JSON");
+  const importButton = createHeaderButton(Upload, null, "Import JSON asset (Ctrl/Cmd+O)", "header-action-button icon-only");
+  const exportButton = createHeaderButton(Download, null, "Export current asset JSON (Ctrl/Cmd+S)", "header-action-button icon-only");
+  const helpButton = createHeaderButton(CircleHelp, null, "Help", "header-action-button icon-only");
   const fullscreenButton = createHeaderButton(Maximize2, null, "Fullscreen", "header-action-button icon-only");
   importButton.type = "button";
   exportButton.type = "button";
+  helpButton.type = "button";
   fullscreenButton.type = "button";
   importButton.addEventListener("click", shellActions.importJson);
   exportButton.addEventListener("click", shellActions.exportCurrentJson);
+  helpButton.addEventListener("click", () => window.open("/help.html", "_blank", "noopener,noreferrer"));
   fullscreenButton.addEventListener("click", shellActions.toggleFullscreen);
-  actions.append(importButton, exportButton, fullscreenButton);
+  actions.append(importButton, exportButton, helpButton, fullscreenButton);
 
   header.append(brand, nav, actions);
   return header;
