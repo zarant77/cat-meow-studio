@@ -78,15 +78,13 @@ function renderHeader(mode: AppMode, shellActions: RenderActions): HTMLElement {
   const actions = createElement("div", "header-actions");
   const importButton = createHeaderButton(Upload, null, "Import JSON asset (Ctrl/Cmd+O)", "header-action-button icon-only");
   const exportButton = createHeaderButton(Download, null, "Export current asset JSON (Ctrl/Cmd+S)", "header-action-button icon-only");
-  const helpButton = createHeaderButton(CircleHelp, null, "Help", "header-action-button icon-only");
+  const helpButton = createHeaderLink(CircleHelp, "/help.html", "Help", "header-action-button icon-only");
   const fullscreenButton = createHeaderButton(Maximize2, null, "Fullscreen", "header-action-button icon-only");
   importButton.type = "button";
   exportButton.type = "button";
-  helpButton.type = "button";
   fullscreenButton.type = "button";
   importButton.addEventListener("click", shellActions.importJson);
   exportButton.addEventListener("click", shellActions.exportCurrentJson);
-  helpButton.addEventListener("click", () => window.open("/help.html", "_blank", "noopener,noreferrer"));
   fullscreenButton.addEventListener("click", shellActions.toggleFullscreen);
   actions.append(importButton, exportButton, helpButton, fullscreenButton);
 
@@ -114,6 +112,18 @@ function createHeaderButton(icon: AppIcon, label: string | null, title: string, 
   button.setAttribute("aria-label", title);
 
   return button;
+}
+
+function createHeaderLink(icon: AppIcon, href: string, title: string, className: string): HTMLAnchorElement {
+  const link = createElement("a", className);
+  link.href = href;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.title = title;
+  link.setAttribute("aria-label", title);
+  link.append(createIcon(icon));
+
+  return link;
 }
 
 function renderFooter(status: AppStatus | null, previewStatusArea: HTMLElement): HTMLElement {

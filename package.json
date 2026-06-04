@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "prestart": "npm run build",
     "start": "serve -s dist -l $PORT",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit"
