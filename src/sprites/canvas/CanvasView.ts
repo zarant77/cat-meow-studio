@@ -20,9 +20,17 @@ import { getSpritePoint } from "./pointer.js";
 export type CanvasViewCallbacks = {
   onRender: () => void;
   onPickColor: (color: string) => void;
+  onCrop: (bounds: RectBounds) => void;
 };
 
-type InteractionMode = "idle" | "creatingPrimitive" | "draggingPrimitives" | "draggingSelection" | "rotatingSelection" | "scalingSelection";
+type InteractionMode =
+  | "idle"
+  | "creatingPrimitive"
+  | "draggingPrimitives"
+  | "draggingSelection"
+  | "cropping"
+  | "rotatingSelection"
+  | "scalingSelection";
 
 type RectBounds = {
   minX: number;
@@ -127,6 +135,13 @@ export class CanvasView {
         return;
       }
 
+      if (this.state.activeTool === "crop") {
+        this.beginCrop(point);
+        this.canvas.setPointerCapture(event.pointerId);
+        this.render();
+        return;
+      }
+
       const topTarget = this.hitTestTopPrimitive(point);
 
       if (topTarget?.locked) {
@@ -165,6 +180,12 @@ export class CanvasView {
       }
 
       if (this.interactionMode === "draggingSelection") {
+        this.selectionCurrent = this.hoverPoint;
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode === "cropping") {
         this.selectionCurrent = this.hoverPoint;
         this.render();
         return;
@@ -213,6 +234,11 @@ export class CanvasView {
       if (this.interactionMode === "draggingSelection") {
         this.endBoxSelection();
         this.render();
+        return;
+      }
+
+      if (this.interactionMode === "cropping") {
+        this.endCrop();
         return;
       }
 
@@ -301,6 +327,7 @@ export class CanvasView {
 
     this.drawSelectionBox();
     this.drawSelection();
+    this.drawCropOverlay();
     this.updateCursor();
     this.callbacks.onRender();
   }
@@ -451,6 +478,15 @@ export class CanvasView {
     if (!isAddingToSelection) {
       this.state.selectedNodeIds = [];
     }
+  }
+
+  private beginCrop(point: Point): void {
+    this.resetInteraction();
+    this.interactionMode = "cropping";
+    this.activeInteractionCursor = "crosshair";
+    this.selectionStart = point;
+    this.selectionCurrent = point;
+    this.updateCursor();
   }
 
   private beginPointerPress(point: Point, clientPoint: Point, hitNodeIds: string[], isRangeSelection: boolean): void {
@@ -794,6 +830,23 @@ export class CanvasView {
     this.resetInteraction();
   }
 
+  private endCrop(): void {
+    if (!this.selectionStart || !this.selectionCurrent) {
+      this.resetInteraction();
+      return;
+    }
+
+    const bounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
+    this.resetInteraction();
+
+    if (bounds.maxX - bounds.minX < 1 || bounds.maxY - bounds.minY < 1) {
+      this.render();
+      return;
+    }
+
+    this.callbacks.onCrop(bounds);
+  }
+
   private endTransform(): void {
     this.resetInteraction();
   }
@@ -828,6 +881,10 @@ export class CanvasView {
     }
 
     if (this.state.activeTool === "eyedropper") {
+      return "crosshair";
+    }
+
+    if (this.state.activeTool === "crop") {
       return "crosshair";
     }
 
@@ -1036,6 +1093,28 @@ export class CanvasView {
     this.ctx.setLineDash([5 / this.getCanvasScale(), 4 / this.getCanvasScale()]);
     this.ctx.fillRect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
     this.ctx.strokeRect(bounds.minX, bounds.minY, bounds.maxX - bounds.minX, bounds.maxY - bounds.minY);
+    this.ctx.restore();
+  }
+
+  private drawCropOverlay(): void {
+    if (this.interactionMode !== "cropping" || !this.selectionStart || !this.selectionCurrent) {
+      return;
+    }
+
+    const bounds = normalizeBounds(this.selectionStart, this.selectionCurrent);
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+
+    this.ctx.save();
+    this.ctx.fillStyle = "rgb(0 0 0 / 0.5)";
+    this.ctx.beginPath();
+    this.ctx.rect(0, 0, this.state.spriteWidth, this.state.spriteHeight);
+    this.ctx.rect(bounds.minX, bounds.minY, width, height);
+    this.ctx.fill("evenodd");
+    this.ctx.strokeStyle = "#ffffff";
+    this.ctx.lineWidth = 2 / this.getCanvasScale();
+    this.ctx.setLineDash([6 / this.getCanvasScale(), 4 / this.getCanvasScale()]);
+    this.ctx.strokeRect(bounds.minX, bounds.minY, width, height);
     this.ctx.restore();
   }
 

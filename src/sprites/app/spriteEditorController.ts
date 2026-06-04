@@ -6,6 +6,7 @@ import {
   cloneNodesWithNewIds,
   createGroupNode,
   getEditablePrimitiveNodeEntries,
+  getPrimitiveNodeEntries,
   getPrimitiveCommandsForNode,
   getSceneNodeEntries,
 } from "../document/CatPaintDocument.js";
@@ -18,6 +19,13 @@ type LayerMoveTarget = "back" | "backward" | "forward" | "front";
 type ColorSlot = "foreground" | "background";
 
 type PrimitiveBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type CropBounds = {
   minX: number;
   minY: number;
   maxX: number;
@@ -78,6 +86,7 @@ export class SpriteEditorController {
     this.canvasView = new CanvasView(mount, this.state, {
       onRender: () => this.syncUi(),
       onPickColor: (color) => this.applyPickedColor(color),
+      onCrop: (bounds) => this.cropCanvas(bounds),
     });
 
     this.renderPrimitiveList = bindPrimitiveList(mount, this.state, {
@@ -366,6 +375,12 @@ export class SpriteEditorController {
       return true;
     }
 
+    if (matchesHotkey(event, "c")) {
+      event.preventDefault();
+      this.selectTool("crop");
+      return true;
+    }
+
     return false;
   }
 
@@ -437,6 +452,36 @@ export class SpriteEditorController {
     this.state.spriteHeight = height;
     this.state.pivotX = Math.round(width / 2);
     this.state.pivotY = Math.round(height / 2);
+    this.state.redoStack = [];
+
+    this.syncInputs();
+    this.canvasView?.setupCanvas();
+    this.canvasView?.render();
+  }
+
+  private cropCanvas(bounds: CropBounds): void {
+    const width = bounds.maxX - bounds.minX;
+    const height = bounds.maxY - bounds.minY;
+
+    if (!isCanvasDimension(width) || !isCanvasDimension(height)) {
+      return;
+    }
+
+    if (bounds.minX === 0 && bounds.minY === 0 && width === this.state.spriteWidth && height === this.state.spriteHeight) {
+      return;
+    }
+
+    this.recordHistory();
+
+    for (const entry of getPrimitiveNodeEntries(this.state.nodes)) {
+      entry.command.x -= bounds.minX;
+      entry.command.y -= bounds.minY;
+    }
+
+    this.state.spriteWidth = width;
+    this.state.spriteHeight = height;
+    this.state.pivotX -= bounds.minX;
+    this.state.pivotY -= bounds.minY;
     this.state.redoStack = [];
 
     this.syncInputs();
@@ -1215,7 +1260,8 @@ function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {
     value === "eyedropper" ||
     value === "rotate" ||
     value === "transform" ||
-    value === "scale"
+    value === "scale" ||
+    value === "crop"
   );
 }
 

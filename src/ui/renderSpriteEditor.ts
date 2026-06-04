@@ -5,6 +5,7 @@ import {
   Copy,
   FlipHorizontal,
   FlipVertical,
+  Frame,
   Group,
   Maximize2,
   PaintBucket,
@@ -122,6 +123,7 @@ function createSpriteMount(): {
     createToolButton("rotate", RotateCw, "Rotate (R)"),
     createToolButton("transform", Maximize2, "Transform (T)"),
     createToolButton("scale", Scaling, "Scale (S)"),
+    createToolButton("crop", Frame, "Crop canvas (C)"),
   ];
   const toolButtons = [...primitiveToolButtons, ...editToolButtons];
 
