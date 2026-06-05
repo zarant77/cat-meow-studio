@@ -31,7 +31,6 @@ export interface RenderActions {
 
 export interface MusicRenderActions {
   updateProject: (patch: MusicProjectPatch) => void;
-  importMidiFile: (file: File) => Promise<void>;
   selectNote: (noteId: string) => void;
   addNote: () => void;
   deleteNote: () => void;

@@ -336,13 +336,6 @@ const musicActions: MusicRenderActions = {
     updateMusicProject(patch);
     renderAfterMusicChange();
   },
-  async importMidiFile(file) {
-    try {
-      await importMidiFileIntoEditor(file);
-    } catch {
-      showStatus("Could not import this MIDI file.", "error");
-    }
-  },
   selectNote(noteId) {
     selectMusicNote(noteId);
     render();

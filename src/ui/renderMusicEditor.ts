@@ -1,4 +1,4 @@
-import { CirclePlus, Play, Plus, Redo2, Square, Trash2, Undo2, Upload } from "lucide";
+import { CirclePlus, Play, Plus, Redo2, Square, Trash2, Undo2 } from "lucide";
 import { generateMusicSamples } from "../audio/musicGenerator.js";
 import { isMusicWave, musicWaves } from "../model/musicProject.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
@@ -65,19 +65,6 @@ function renderMusicSidebar(state: MusicEditorState, actions: MusicRenderActions
 
 function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
   const panel = createElement("section", "music-toolbar-panel toolbar");
-  const midiFileInput = createElement("input");
-  midiFileInput.type = "file";
-  midiFileInput.accept = ".mid,.midi,audio/midi,audio/x-midi";
-  midiFileInput.style.display = "none";
-  midiFileInput.addEventListener("change", () => {
-    const file = midiFileInput.files?.[0] ?? null;
-    midiFileInput.value = "";
-
-    if (file !== null) {
-      void actions.importMidiFile(file);
-    }
-  });
-  panel.append(midiFileInput);
 
   const buttons: Array<[AppIcon, string, () => void]> = [
     [Undo2, "Undo (Ctrl/Cmd+Z)", shellActions.undo],
@@ -86,7 +73,6 @@ function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderAct
     [Square, "Stop preview", shellActions.stopSound],
     [Plus, "Add note", actions.addNote],
     [CirclePlus, "Add instrument", actions.addInstrument],
-    [Upload, "Import MIDI", () => midiFileInput.click()],
   ];
 
   for (const [icon, title, onClick] of buttons) {
