@@ -1,4 +1,5 @@
 import { AudioPreview } from "./audio/audioPreview.js";
+import { convertMidiToMusicProject, sanitizeMusicId } from "./audio/midiImport.js";
 import { generateMusicSamples } from "./audio/musicGenerator.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
 import { exportFontJson } from "./export/exportFontJson.js";
@@ -335,6 +336,13 @@ const musicActions: MusicRenderActions = {
     updateMusicProject(patch);
     renderAfterMusicChange();
   },
+  async importMidiFile(file) {
+    try {
+      await importMidiFileIntoEditor(file);
+    } catch {
+      showStatus("Could not import this MIDI file.", "error");
+    }
+  },
   selectNote(noteId) {
     selectMusicNote(noteId);
     render();
@@ -436,7 +444,7 @@ function switchMode(mode: AppMode): void {
 function createJsonFileInput(): HTMLInputElement {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = ".json,application/json";
+  input.accept = ".json,application/json,.mid,.midi,audio/midi,audio/x-midi";
   input.style.display = "none";
   input.addEventListener("change", () => {
     void importSelectedJsonFile(input);
@@ -463,7 +471,14 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
     return;
   }
 
+  const isMidiImport = isMidiFile(file);
+
   try {
+    if (isMidiImport) {
+      await importMidiFileIntoEditor(file);
+      return;
+    }
+
     const text = await readTextFile(file);
 
     if (activeMode === "animator") {
@@ -555,8 +570,29 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
     render();
     markCurrentModeSaved();
   } catch {
-    showStatus(getImportErrorMessage(), "error");
+    showStatus(isMidiImport ? "Could not import this MIDI file." : getImportErrorMessage(), "error");
   }
+}
+
+async function importMidiFileIntoEditor(file: File): Promise<void> {
+  const buffer = await file.arrayBuffer();
+  const project = convertMidiToMusicProject(buffer, file.name, {
+    musicId: sanitizeMusicId(file.name.replace(/\.(midi?)$/i, "")),
+    lengthTicks: "auto",
+    quantizeGrid: 1,
+    transpose: 0,
+  });
+
+  replaceCurrentMusicProject(project);
+  saveCurrentMusicProject();
+  preview.stop();
+  switchMode("music");
+  showStatus(`Imported ${project.id} from MIDI`, "success");
+  markCurrentModeSaved();
+}
+
+function isMidiFile(file: File): boolean {
+  return /\.(midi?)$/i.test(file.name) || file.type === "audio/midi" || file.type === "audio/x-midi";
 }
 
 function detectJsonAssetKind(text: string): AssetKind | "animation" | "font" | null {

@@ -31,6 +31,17 @@ GeneratedSound
 Runtime Playback
 ```
 
+Optional editor interchange:
+
+```text
+*.music.json
+*.sound.json
+```
+
+JSON files are editor/import/export files only.
+
+Little One runtime must not read JSON files.
+
 ---
 
 # Philosophy
@@ -46,8 +57,6 @@ No WAV.
 No OGG.
 
 No MP3.
-
-No JSON.
 
 No runtime parsers.
 
@@ -66,6 +75,8 @@ SQLite
 Little One never reads project data directly.
 
 Little One only consumes exported C definitions.
+
+JSON is allowed as an editor interchange format, but it is not a runtime format.
 
 ---
 
@@ -203,7 +214,7 @@ duration_ms = command duration
 volume      = 0..255
 ```
 
-Pitch changes linearly from note_start to note_end.
+Pitch changes linearly from `note_start` to `note_end`.
 
 ---
 
@@ -241,13 +252,17 @@ const SoundDefinition JUMP_SOUND = {
 
 Music is generated procedurally and cached exactly like sound effects.
 
-Music is rendered once into a GeneratedSound buffer.
+Music is rendered once into a `GeneratedSound` buffer.
 
-Runtime playback loops the generated buffer.
+Runtime playback can either:
+
+- play once
+- loop the whole generated buffer
+- play an intro once, then loop only a selected loop region
 
 ---
 
-# Instrument
+# Music Instrument
 
 ```c
 #pragma pack(push, 1)
@@ -281,7 +296,7 @@ ADSR values are applied during generation.
 
 ---
 
-# Note
+# Music Note
 
 ```c
 #pragma pack(push, 1)
@@ -318,6 +333,77 @@ volume         = 0..255
 
 ---
 
+# Music Loop
+
+Some tracks need a one-time intro or prelude before the main loop starts.
+
+Example:
+
+```text
+0..63      intro / prelude
+64..191    loop section
+```
+
+Playback should work like this:
+
+```text
+first pass:
+0 → 191
+
+then:
+64 → 191
+64 → 191
+64 → 191
+...
+```
+
+The intro must not repeat after the first pass.
+
+---
+
+# Music Loop Metadata
+
+Loop metadata is optional.
+
+If loop metadata is missing or disabled, the track keeps the old behavior.
+
+```c
+typedef struct {
+    uint8_t enabled;
+
+    uint16_t start_tick;
+    uint16_t end_tick;
+} MusicLoop;
+```
+
+Field meaning:
+
+```text
+enabled    = 0 or 1
+start_tick = first tick of the loop region
+end_tick   = exclusive end tick of the loop region
+```
+
+The loop end tick is exclusive.
+
+This means the loop region is:
+
+```text
+[start_tick, end_tick)
+```
+
+Example:
+
+```text
+start_tick = 64
+end_tick   = 192
+
+looped ticks:
+64..191
+```
+
+---
+
 # Music Definition
 
 ```c
@@ -330,6 +416,8 @@ typedef struct {
 
     uint16_t length_ticks;
 
+    MusicLoop loop;
+
     const MusicInstrument *instruments;
     uint16_t instrument_count;
 
@@ -337,6 +425,391 @@ typedef struct {
     uint16_t note_count;
 } MusicDefinition;
 ```
+
+`loop.enabled = 0` means normal playback behavior.
+
+`loop.enabled = 1` means playback starts from tick `0`, but after reaching `loop.end_tick`, it jumps back to `loop.start_tick`.
+
+---
+
+# Music Loop Validation
+
+Exporter and packer must validate loop metadata.
+
+Rules:
+
+```text
+loop.enabled must be 0 or 1
+loop.start_tick >= 0
+loop.end_tick > loop.start_tick
+loop.end_tick <= length_ticks
+```
+
+If `loop.enabled = 0`, `loop.start_tick` and `loop.end_tick` may be `0`.
+
+If `loop.enabled = 1`, invalid loop metadata is an export error.
+
+Recommended strict behavior:
+
+```text
+Fail export with a clear message.
+```
+
+Do not silently fix invalid loop metadata.
+
+---
+
+# Notes Crossing Loop Boundaries
+
+Notes should not cross `loop.end_tick`.
+
+Problem example:
+
+```text
+note starts at 188
+duration is 12
+loop.end_tick is 192
+```
+
+That note would extend past the loop end.
+
+For MVP, the exporter should fail with a clear error.
+
+Recommended error:
+
+```text
+Music note crosses loop end:
+start_tick=188 duration_ticks=12 loop_end_tick=192
+```
+
+Later, Cat Meow Studio may add an option to automatically clamp such notes.
+
+For now, strict validation is safer and more predictable.
+
+---
+
+# Runtime Playback Rules
+
+Correct behavior for music with loop metadata:
+
+```text
+Start playback at tick 0.
+Play intro and main section normally.
+When playhead reaches loop.end_tick, jump to loop.start_tick.
+Continue looping between loop.start_tick and loop.end_tick.
+```
+
+Pseudocode:
+
+```c
+if (music->loop.enabled && play_tick >= music->loop.end_tick) {
+    play_tick = music->loop.start_tick;
+}
+```
+
+Music without loop metadata:
+
+```text
+Existing behavior remains unchanged.
+```
+
+If the old behavior was whole-track looping, it still loops from `0` to `length_ticks`.
+
+---
+
+# Runtime Sample Looping
+
+Music is generated into one PCM buffer.
+
+Loop metadata in ticks must be converted to sample positions during generation or playback setup.
+
+Required generated metadata:
+
+```c
+typedef struct {
+    uint16_t id;
+
+    uint32_t sample_rate;
+    uint32_t sample_count;
+
+    uint8_t loop_enabled;
+    uint32_t loop_start_sample;
+    uint32_t loop_end_sample;
+
+    int16_t *samples;
+} GeneratedMusic;
+```
+
+Field meaning:
+
+```text
+loop_enabled      = 0 or 1
+loop_start_sample = PCM sample index where loop begins
+loop_end_sample   = exclusive PCM sample index where loop ends
+```
+
+If the engine reuses `GeneratedSound` for music, equivalent loop fields must be stored in the music playback state or in a separate music asset wrapper.
+
+Do not store loop positions only in ticks at runtime playback level if playback operates in samples.
+
+---
+
+# Tick To Time Conversion
+
+Music ticks are converted using:
+
+```text
+beats_per_minute = bpm
+ticks_per_beat   = ticksPerBeat
+seconds_per_beat = 60 / bpm
+seconds_per_tick = seconds_per_beat / ticksPerBeat
+```
+
+Sample conversion:
+
+```text
+sample = tick * seconds_per_tick * sample_rate
+```
+
+Example:
+
+```text
+bpm = 120
+ticks_per_beat = 4
+sample_rate = 22050
+
+seconds_per_tick = (60 / 120) / 4
+                 = 0.125
+
+samples_per_tick = 22050 * 0.125
+                 = 2756.25
+```
+
+Because this may not be an integer, the generator should use the same rounding strategy consistently for notes, total length, and loop points.
+
+Recommended:
+
+```text
+round to nearest sample
+```
+
+---
+
+# Music JSON Interchange Format
+
+Cat Meow Studio may import/export music as JSON for editing and tooling.
+
+This is not a Little One runtime format.
+
+Example:
+
+```json
+{
+  "type": "music",
+  "id": "robocat_theme",
+  "bpm": 88,
+  "ticksPerBeat": 4,
+  "lengthTicks": 192,
+  "loop": {
+    "enabled": true,
+    "startTick": 64,
+    "endTick": 192
+  },
+  "instruments": [
+    {
+      "id": "lead",
+      "wave": "square",
+      "volume": 76,
+      "attackMs": 5,
+      "decayMs": 70,
+      "sustain": 180,
+      "releaseMs": 40
+    }
+  ],
+  "notes": [
+    {
+      "instrument": 0,
+      "note": 62,
+      "startTick": 0,
+      "durationTicks": 4,
+      "volume": 220
+    }
+  ]
+}
+```
+
+---
+
+# Music JSON Fields
+
+```text
+type         = "music"
+id           = editor asset id
+bpm          = beats per minute
+ticksPerBeat = ticks per beat
+lengthTicks  = total track length in ticks
+loop         = optional loop metadata
+instruments  = instrument list
+notes        = note list
+```
+
+---
+
+# Music JSON Loop Fields
+
+```json
+"loop": {
+  "enabled": true,
+  "startTick": 64,
+  "endTick": 192
+}
+```
+
+Rules:
+
+```text
+enabled   = boolean
+startTick = integer >= 0
+endTick   = integer > startTick
+endTick   <= lengthTicks
+```
+
+If `loop` is missing:
+
+```text
+No custom loop metadata.
+Use old/default playback behavior.
+```
+
+If `loop.enabled` is `false`:
+
+```text
+Custom loop metadata is disabled.
+Use old/default playback behavior.
+```
+
+---
+
+# Music JSON Instrument Fields
+
+```text
+id        = editor-only instrument id
+wave      = "square" | "sine" | "triangle" | "noise"
+volume    = 0..255
+attackMs  = attack duration
+decayMs   = decay duration
+sustain   = 0..255
+releaseMs = release duration
+```
+
+Older JSON files may contain only:
+
+```text
+id
+wave
+volume
+attackMs
+decayMs
+```
+
+Importer should support older files and apply defaults:
+
+```text
+sustain   = 255
+releaseMs = 0
+```
+
+---
+
+# Music JSON Note Fields
+
+```text
+instrument    = instrument index
+note          = MIDI note, 0..127
+startTick     = note position
+durationTicks = note length
+volume        = 0..255
+```
+
+Older tools may emit note volume as `1..100`.
+
+Importer should support both scales when possible.
+
+Recommended editor behavior:
+
+```text
+If max note volume <= 100, treat it as percent and convert to 0..255.
+If any note volume > 100, treat all note volumes as 0..255.
+```
+
+---
+
+# Music JSON Export Rules
+
+When Cat Meow Studio exports `*.music.json`:
+
+- include `loop` only if loop metadata exists or if loop editing is enabled
+- use camelCase field names
+- sort notes by `startTick`, then `instrument`, then `note`
+- write valid `lengthTicks`
+- write valid instrument indexes
+- write valid note ranges
+- validate loop metadata
+- validate notes crossing `loop.endTick`
+
+---
+
+# Music JSON Import Rules
+
+When Cat Meow Studio imports `*.music.json`:
+
+- accept files with missing `loop`
+- accept files with `loop.enabled = false`
+- validate files with `loop.enabled = true`
+- support older instruments without `sustain` and `releaseMs`
+- support older note volume range `1..100`
+- preserve loop metadata when re-exporting
+
+---
+
+# MIDI Import Rules
+
+Cat Meow Studio may import `.mid` / `.midi` files in the browser.
+
+MIDI import converts MIDI notes into the Music JSON shape.
+
+Rules:
+
+```text
+MIDI note number      → note
+MIDI note start ticks → startTick
+MIDI note duration    → durationTicks
+MIDI velocity         → volume
+```
+
+MIDI import should support:
+
+```text
+selected track to lead
+all tracks merged to lead
+tracks mapped to instruments
+output lengthTicks
+quantize grid
+transpose
+optional loop metadata
+```
+
+MIDI import may optionally set:
+
+```json
+"loop": {
+  "enabled": true,
+  "startTick": 64,
+  "endTick": 192
+}
+```
+
+Use this when the user specifies intro length and loop length.
 
 ---
 
@@ -358,6 +831,7 @@ music + sound effect
 MVP behavior:
 
 - music loops
+- music may have a one-time intro before the loop
 - one sound effect may play over music
 - new sound effect may replace current sound effect
 
@@ -382,6 +856,16 @@ typedef enum {
 } SoundId;
 ```
 
+Example:
+
+```c
+typedef enum {
+    MUSIC_ID_MAIN_THEME = 1,
+    MUSIC_ID_GAME_OVER,
+    MUSIC_ID_ROBOCAT_THEME
+} MusicId;
+```
+
 The runtime should never perform string lookups.
 
 ---
@@ -400,8 +884,58 @@ Each file contains:
 - include statement
 - static arrays
 - one public definition
+- optional loop metadata for music
 
-No JSON export is required.
+JSON export is allowed for editor interchange, debugging, and tooling.
+
+JSON export is not required by Little One runtime.
+
+---
+
+# Music C Export Example
+
+```c
+#include "../music_definition.h"
+
+static const MusicInstrument INSTRUMENTS[] = {
+    {
+        SOUND_WAVE_SQUARE,
+        200,
+        5,
+        70,
+        220,
+        40
+    }
+};
+
+static const MusicNote NOTES[] = {
+    { 0, 62, 0, 4, 220 },
+    { 0, 69, 4, 4, 200 },
+    { 0, 65, 8, 4, 200 },
+    { 0, 62, 12, 4, 220 }
+};
+
+const MusicDefinition ROBOCAT_THEME_MUSIC = {
+    .id = MUSIC_ID_ROBOCAT_THEME,
+
+    .bpm = 88,
+    .ticks_per_beat = 4,
+
+    .length_ticks = 192,
+
+    .loop = {
+        .enabled = 1,
+        .start_tick = 64,
+        .end_tick = 192
+    },
+
+    .instruments = INSTRUMENTS,
+    .instrument_count = sizeof(INSTRUMENTS) / sizeof(INSTRUMENTS[0]),
+
+    .notes = NOTES,
+    .note_count = sizeof(NOTES) / sizeof(NOTES[0]),
+};
+```
 
 ---
 
@@ -423,6 +957,28 @@ generate_audio_every_frame(...);
 ```
 
 Audio generation happens during startup only.
+
+Music playback should use cached PCM and loop sample metadata.
+
+---
+
+# Backward Compatibility
+
+Existing music without loop metadata remains valid.
+
+Existing generated music definitions can be migrated by setting:
+
+```c
+.loop = {
+    .enabled = 0,
+    .start_tick = 0,
+    .end_tick = 0
+}
+```
+
+If the C compiler requires explicit initialization, exporters should emit disabled loop metadata for every music definition.
+
+If not required, missing or zero-initialized loop metadata must mean disabled loop.
 
 ---
 

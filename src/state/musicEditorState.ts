@@ -196,7 +196,7 @@ export function addMusicNote(): void {
     project: {
       ...musicState.project,
       instruments,
-      notes: [...musicState.project.notes, note],
+      notes: sortMusicNotes([...musicState.project.notes, note]),
     },
     selectedNoteId: note.id,
     selectedInstrumentIndex,
@@ -244,8 +244,10 @@ export function updateSelectedMusicNote(patch: MusicNotePatch): void {
     ...musicState,
     project: {
       ...musicState.project,
-      notes: musicState.project.notes.map((note) =>
-        note.id === musicState.selectedNoteId ? { ...note, ...normalizedPatch } : note,
+      notes: sortMusicNotes(
+        musicState.project.notes.map((note) =>
+          note.id === musicState.selectedNoteId ? { ...note, ...normalizedPatch } : note,
+        ),
       ),
     },
     selectedInstrumentIndex: normalizedPatch.instrument ?? musicState.selectedInstrumentIndex,
@@ -548,6 +550,12 @@ function cloneMusicProject(project: MusicProject): MusicProject {
   return {
     ...project,
     instruments: project.instruments.map((instrument) => ({ ...instrument })),
-    notes: project.notes.map((note) => ({ ...note })),
+    notes: sortMusicNotes(project.notes.map((note) => ({ ...note }))),
   };
+}
+
+function sortMusicNotes(notes: MusicNote[]): MusicNote[] {
+  return [...notes].sort(
+    (left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note,
+  );
 }

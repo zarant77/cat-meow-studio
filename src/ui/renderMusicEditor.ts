@@ -1,4 +1,4 @@
-import { CirclePlus, Play, Plus, Redo2, Square, Trash2, Undo2 } from "lucide";
+import { CirclePlus, Play, Plus, Redo2, Square, Trash2, Undo2, Upload } from "lucide";
 import { generateMusicSamples } from "../audio/musicGenerator.js";
 import { isMusicWave, musicWaves } from "../model/musicProject.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
@@ -14,7 +14,7 @@ export function renderMusicWorkspaceSurface(
   shellActions: RenderActions,
 ): Omit<ModeSurface, "previewStatusArea"> {
   return {
-    assetPanel: renderMusicToolbar(actions, shellActions),
+    assetPanel: renderMusicSidebar(state, actions, shellActions),
     editorArea: renderMusicTracker(state, actions),
     inspectorPanel: renderMusicInspectorWithProperties(state, actions),
   };
@@ -53,6 +53,53 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
   );
   panel.append(timingGrid);
 
+  return panel;
+}
+
+function renderMusicSidebar(state: MusicEditorState, actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
+  const panel = renderAssetSidebarPanel("music-sidebar-panel");
+  panel.append(renderMusicToolbar(actions, shellActions), renderMusicInstrumentList(state, actions));
+
+  return panel;
+}
+
+function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
+  const panel = createElement("section", "music-toolbar-panel toolbar");
+  const midiFileInput = createElement("input");
+  midiFileInput.type = "file";
+  midiFileInput.accept = ".mid,.midi,audio/midi,audio/x-midi";
+  midiFileInput.style.display = "none";
+  midiFileInput.addEventListener("change", () => {
+    const file = midiFileInput.files?.[0] ?? null;
+    midiFileInput.value = "";
+
+    if (file !== null) {
+      void actions.importMidiFile(file);
+    }
+  });
+  panel.append(midiFileInput);
+
+  const buttons: Array<[AppIcon, string, () => void]> = [
+    [Undo2, "Undo (Ctrl/Cmd+Z)", shellActions.undo],
+    [Redo2, "Redo (Ctrl/Cmd+Shift+Z)", shellActions.redo],
+    [Play, "Play preview (Space)", shellActions.playSound],
+    [Square, "Stop preview", shellActions.stopSound],
+    [Plus, "Add note", actions.addNote],
+    [CirclePlus, "Add instrument", actions.addInstrument],
+    [Upload, "Import MIDI", () => midiFileInput.click()],
+  ];
+
+  for (const [icon, title, onClick] of buttons) {
+    const button = createIconButton(icon, title, "tool-button");
+    button.type = "button";
+    button.addEventListener("click", onClick);
+    panel.append(button);
+  }
+
+  return panel;
+}
+
+function renderMusicInstrumentList(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
   const instrumentList = createElement("section", "music-instruments");
   const instrumentTitle = createElement("div", "panel-title compact-title");
   const addInstrumentButton = createIconButton(Plus, "Add instrument");
@@ -71,30 +118,8 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
     instrumentRows.append(button);
   });
   instrumentList.append(instrumentRows);
-  panel.append(instrumentList);
 
-  return panel;
-}
-
-function renderMusicToolbar(actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
-  const panel = renderAssetSidebarPanel("music-toolbar-panel toolbar");
-  const buttons: Array<[AppIcon, string, () => void]> = [
-    [Undo2, "Undo (Ctrl/Cmd+Z)", shellActions.undo],
-    [Redo2, "Redo (Ctrl/Cmd+Shift+Z)", shellActions.redo],
-    [Play, "Play preview (Space)", shellActions.playSound],
-    [Square, "Stop preview", shellActions.stopSound],
-    [Plus, "Add note", actions.addNote],
-    [CirclePlus, "Add instrument", actions.addInstrument],
-  ];
-
-  for (const [icon, title, onClick] of buttons) {
-    const button = createIconButton(icon, title, "tool-button");
-    button.type = "button";
-    button.addEventListener("click", onClick);
-    panel.append(button);
-  }
-
-  return panel;
+  return instrumentList;
 }
 
 function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
@@ -103,7 +128,7 @@ function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions
   const addButton = createIconButton(Plus, "Add note");
   addButton.addEventListener("click", actions.addNote);
   title.append(createTextElement("h2", "Notes"), addButton);
-  panel.append(title);
+  panel.append(title, renderMusicTimeline(state, actions));
 
   const grid = createElement("div", "panel-scroll tracker-grid music-note-grid");
   appendChildren(grid, [
@@ -114,7 +139,9 @@ function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions
     createTextElement("strong", "Vol"),
   ]);
 
-  const notes = [...state.project.notes].sort((left, right) => left.startTick - right.startTick || left.note - right.note);
+  const notes = [...state.project.notes].sort(
+    (left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note,
+  );
   for (const note of notes) {
     const isSelected = note.id === state.selectedNoteId;
     const rowClassName = `list-row tracker-row${isSelected ? " is-selected" : ""}`;
@@ -132,6 +159,45 @@ function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions
 
   panel.append(grid);
   return panel;
+}
+
+function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
+  const timeline = createElement("section", "music-timeline");
+  const ruler = createElement("div", "music-timeline-ruler");
+  const lanes = createElement("div", "music-timeline-lanes");
+  const lengthTicks = Math.max(1, state.project.lengthTicks);
+  const beatStep = Math.max(1, state.project.ticksPerBeat);
+
+  for (let tick = 0; tick <= lengthTicks; tick += beatStep) {
+    const isBar = tick % (beatStep * 4) === 0;
+    const marker = createTextElement("span", isBar ? String(tick) : "", isBar ? "is-bar" : "");
+    marker.style.left = `${(tick / lengthTicks) * 100}%`;
+    ruler.append(marker);
+  }
+
+  state.project.instruments.forEach((instrument, instrumentIndex) => {
+    const lane = createElement("div", "music-timeline-lane");
+    const label = createTextElement("span", instrument.id, "music-timeline-lane-label");
+    const notes = state.project.notes.filter((note) => note.instrument === instrumentIndex);
+
+    lane.append(label);
+    for (const note of notes) {
+      const noteButton = createTextElement(
+        "button",
+        getNoteName(note.note),
+        `music-timeline-note instrument-${instrumentIndex % 5}${note.id === state.selectedNoteId ? " is-selected" : ""}`,
+      );
+      noteButton.type = "button";
+      noteButton.style.left = `${(note.startTick / lengthTicks) * 100}%`;
+      noteButton.style.width = `${Math.max(1.8, (note.durationTicks / lengthTicks) * 100)}%`;
+      noteButton.addEventListener("click", () => actions.selectNote(note.id));
+      lane.append(noteButton);
+    }
+    lanes.append(lane);
+  });
+
+  timeline.append(ruler, lanes);
+  return timeline;
 }
 
 function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {

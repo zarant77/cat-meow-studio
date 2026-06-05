@@ -12,6 +12,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tonejs/midi": "^2.0.28",
     "lucide": "^1.17.0",
     "serve": "^14.2.6"
   },
