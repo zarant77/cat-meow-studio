@@ -1,13 +1,17 @@
-import type { MusicInstrument, MusicNote, MusicProject } from "../model/musicProject.js";
+import { normalizeMusicLoop, type MusicInstrument, type MusicLoop, type MusicNote, type MusicProject } from "../model/musicProject.js";
 import { sanitizeSoundId } from "../utils/validation.js";
 
 export interface MusicEditorState {
   project: MusicProject;
   selectedNoteId: string | null;
   selectedInstrumentIndex: number | null;
+  playingNoteIds: string[];
+  isPreviewPlaying: boolean;
 }
 
-export type MusicProjectPatch = Partial<Pick<MusicProject, "id" | "bpm" | "ticksPerBeat" | "lengthTicks">>;
+export type MusicProjectPatch = Partial<Pick<MusicProject, "id" | "bpm" | "ticksPerBeat" | "lengthTicks">> & {
+  loop?: Partial<MusicLoop>;
+};
 export type MusicNotePatch = Partial<Omit<MusicNote, "id">>;
 export type MusicInstrumentPatch = Partial<MusicInstrument>;
 
@@ -38,6 +42,11 @@ let musicState: MusicEditorState = {
     bpm: 120,
     ticksPerBeat: 4,
     lengthTicks: 16,
+    loop: {
+      enabled: false,
+      startTick: 0,
+      endTick: 16,
+    },
     instruments: [
       defaultInstrument,
       {
@@ -57,6 +66,8 @@ let musicState: MusicEditorState = {
   },
   selectedNoteId: "note-1",
   selectedInstrumentIndex: 0,
+  playingNoteIds: [],
+  isPreviewPlaying: false,
 };
 
 let musicHistoryState: MusicHistoryState = {
@@ -69,6 +80,8 @@ export function getMusicEditorState(): MusicEditorState {
   return {
     ...musicState,
     project: cloneMusicProject(musicState.project),
+    playingNoteIds: [],
+    isPreviewPlaying: false,
   };
 }
 
@@ -134,7 +147,7 @@ export function replaceCurrentMusicProject(project: MusicProject, options: Repla
 }
 
 export function updateMusicProject(patch: MusicProjectPatch): void {
-  const normalizedPatch = normalizeProjectPatch(patch);
+  const normalizedPatch = normalizeProjectPatch(patch, musicState.project);
 
   if (!hasProjectPatchChange(normalizedPatch)) {
     return;
@@ -233,9 +246,13 @@ export function updateSelectedMusicNote(patch: MusicNotePatch): void {
     return;
   }
 
+  updateMusicNote(musicState.selectedNoteId, patch);
+}
+
+export function updateMusicNote(noteId: string, patch: MusicNotePatch): void {
   const normalizedPatch = normalizeNotePatch(patch);
 
-  if (!hasNotePatchChange(musicState.selectedNoteId, normalizedPatch)) {
+  if (!hasNotePatchChange(noteId, normalizedPatch)) {
     return;
   }
 
@@ -246,10 +263,11 @@ export function updateSelectedMusicNote(patch: MusicNotePatch): void {
       ...musicState.project,
       notes: sortMusicNotes(
         musicState.project.notes.map((note) =>
-          note.id === musicState.selectedNoteId ? { ...note, ...normalizedPatch } : note,
+          note.id === noteId ? { ...note, ...normalizedPatch } : note,
         ),
       ),
     },
+    selectedNoteId: noteId,
     selectedInstrumentIndex: normalizedPatch.instrument ?? musicState.selectedInstrumentIndex,
   };
   syncPresentMusicHistory();
@@ -352,7 +370,7 @@ function createNote(
   };
 }
 
-function normalizeProjectPatch(patch: MusicProjectPatch): MusicProjectPatch {
+function normalizeProjectPatch(patch: MusicProjectPatch, project: MusicProject): MusicProjectPatch {
   const normalized: MusicProjectPatch = {};
 
   if (patch.id !== undefined) {
@@ -371,6 +389,16 @@ function normalizeProjectPatch(patch: MusicProjectPatch): MusicProjectPatch {
     normalized.lengthTicks = Math.max(1, Math.round(patch.lengthTicks));
   }
 
+  if (patch.loop !== undefined || normalized.lengthTicks !== undefined) {
+    normalized.loop = normalizeMusicLoop(
+      {
+        ...project.loop,
+        ...patch.loop,
+      },
+      normalized.lengthTicks ?? project.lengthTicks,
+    );
+  }
+
   return normalized;
 }
 
@@ -379,7 +407,16 @@ function hasProjectPatchChange(patch: MusicProjectPatch): boolean {
     (patch.id !== undefined && patch.id !== musicState.project.id) ||
     (patch.bpm !== undefined && patch.bpm !== musicState.project.bpm) ||
     (patch.ticksPerBeat !== undefined && patch.ticksPerBeat !== musicState.project.ticksPerBeat) ||
-    (patch.lengthTicks !== undefined && patch.lengthTicks !== musicState.project.lengthTicks)
+    (patch.lengthTicks !== undefined && patch.lengthTicks !== musicState.project.lengthTicks) ||
+    (patch.loop !== undefined && hasLoopPatchChange(patch.loop))
+  );
+}
+
+function hasLoopPatchChange(loop: Partial<MusicLoop>): boolean {
+  return (
+    (loop.enabled !== undefined && loop.enabled !== musicState.project.loop.enabled) ||
+    (loop.startTick !== undefined && loop.startTick !== musicState.project.loop.startTick) ||
+    (loop.endTick !== undefined && loop.endTick !== musicState.project.loop.endTick)
   );
 }
 
@@ -491,6 +528,8 @@ function applyMusicProject(project: MusicProject, preferredSelectedNoteId: strin
     project: clonedProject,
     selectedNoteId,
     selectedInstrumentIndex,
+    playingNoteIds: [],
+    isPreviewPlaying: false,
   };
   nextNoteNumber = Math.max(getNextNoteNumber(clonedProject.notes), nextNoteNumber);
   syncPresentMusicHistory();
@@ -503,6 +542,11 @@ function createBlankMusicProject(): MusicProject {
     bpm: 120,
     ticksPerBeat: 4,
     lengthTicks: 16,
+    loop: {
+      enabled: false,
+      startTick: 0,
+      endTick: 16,
+    },
     instruments: [{ ...defaultInstrument }],
     notes: [],
   };
@@ -549,6 +593,7 @@ function clampInteger(value: number, minimum: number, maximum: number): number {
 function cloneMusicProject(project: MusicProject): MusicProject {
   return {
     ...project,
+    loop: normalizeMusicLoop(project.loop, project.lengthTicks),
     instruments: project.instruments.map((instrument) => ({ ...instrument })),
     notes: sortMusicNotes(project.notes.map((note) => ({ ...note }))),
   };

@@ -1,4 +1,5 @@
 import type { MusicInstrument, MusicNote, MusicProject, MusicWave } from "../model/musicProject.js";
+import { normalizeMusicLoop } from "../model/musicProject.js";
 import { isValidSoundId, toMusicSymbolName } from "../utils/symbolName.js";
 
 export interface MusicCOptions {
@@ -45,6 +46,7 @@ export function createMusicDefinitionCBlock(
   const noteSymbol = options.noteSymbol ?? "NOTES";
   const definitionSymbol = toMusicSymbolName(project.id);
   const idConstant = getMusicIdConstant(project.id);
+  const loop = normalizeMusicLoop(project.loop, project.lengthTicks);
 
   return {
     idConstant,
@@ -64,6 +66,11 @@ export function createMusicDefinitionCBlock(
       `    .bpm = ${clampInteger(project.bpm, 20, 300)},`,
       `    .ticks_per_beat = ${clampInteger(project.ticksPerBeat, 1, 32)},`,
       `    .length_ticks = ${clampInteger(project.lengthTicks, 1, 4096)},`,
+      `    .loop = {`,
+      `        .enabled = ${loop.enabled ? 1 : 0},`,
+      `        .start_tick = ${clampInteger(loop.startTick, 0, 4095)},`,
+      `        .end_tick = ${clampInteger(loop.endTick, 1, 4096)}`,
+      `    },`,
       "",
       `    .instruments = ${instrumentSymbol},`,
       `    .instrument_count = sizeof(${instrumentSymbol}) / sizeof(${instrumentSymbol}[0]),`,

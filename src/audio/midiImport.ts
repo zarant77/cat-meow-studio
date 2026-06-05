@@ -1,5 +1,5 @@
 import { Midi, type Track } from "@tonejs/midi";
-import type { MusicInstrument, MusicNote, MusicProject } from "../model/musicProject.js";
+import { createDefaultMusicLoop, type MusicInstrument, type MusicNote, type MusicProject } from "../model/musicProject.js";
 
 export interface MidiImportOptions {
   musicId: string;
@@ -76,6 +76,7 @@ export function convertMidiToMusicProject(buffer: ArrayBuffer, fileName: string,
     bpm: Math.round(midi.header.tempos[0]?.bpm ?? 120),
     ticksPerBeat: outputTicksPerBeat,
     lengthTicks,
+    loop: createDefaultMusicLoop(lengthTicks),
     instruments,
     notes,
   };

@@ -1,4 +1,5 @@
 import type { AssetId, AssetKind, Project, ProjectAsset } from "../model/assets.js";
+import { normalizeMusicLoop } from "../model/musicProject.js";
 import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 
 export type SelectedAssetIds = Record<AssetKind, AssetId | null>;
@@ -269,6 +270,7 @@ function cloneProjectAsset(asset: ProjectAsset): ProjectAsset {
       ...asset,
       music: {
         ...asset.music,
+        loop: normalizeMusicLoop(asset.music.loop, asset.music.lengthTicks),
         instruments: asset.music.instruments.map((instrument) => ({ ...instrument })),
         notes: asset.music.notes.map((note) => ({ ...note })),
       },
@@ -312,6 +314,7 @@ function withAssetIdentity(asset: ProjectAsset, id: AssetId, name: string): Proj
       music: {
         ...asset.music,
         id,
+        loop: normalizeMusicLoop(asset.music.loop, asset.music.lengthTicks),
         instruments: asset.music.instruments.map((instrument) => ({ ...instrument })),
         notes: asset.music.notes.map((note) => ({ ...note })),
       },

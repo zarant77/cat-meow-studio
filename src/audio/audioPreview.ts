@@ -19,11 +19,12 @@ export class AudioPreview {
     this.playSamples(samples, false);
   }
 
-  playSamples(samples: Float32Array, loop: boolean): void {
+  playSamples(samples: Float32Array, loop: boolean | AudioPreviewOptions): void {
     if (samples.length === 0) {
       return;
     }
 
+    const options: AudioPreviewOptions = typeof loop === "boolean" ? { loop } : loop;
     const context = this.getAudioContext();
     const buffer = context.createBuffer(1, samples.length, soundSampleRate);
     const source = context.createBufferSource();
@@ -34,7 +35,9 @@ export class AudioPreview {
     channelSamples.set(samples);
     buffer.copyToChannel(channelSamples, 0);
     source.buffer = buffer;
-    source.loop = loop;
+    source.loop = options.loop;
+    source.loopStart = Math.max(0, options.loopStartSeconds ?? 0);
+    source.loopEnd = Math.min(buffer.duration, Math.max(source.loopStart, options.loopEndSeconds ?? buffer.duration));
     source.connect(context.destination);
     source.addEventListener("ended", () => {
       if (this.currentSource === source) {
@@ -48,7 +51,7 @@ export class AudioPreview {
       .resume()
       .then(() => {
         if (this.currentSource === source) {
-          source.start();
+          source.start(0, Math.max(0, options.startOffsetSeconds ?? 0));
         }
       })
       .catch(() => {
@@ -81,6 +84,13 @@ export class AudioPreview {
 
     return this.audioContext;
   }
+}
+
+export interface AudioPreviewOptions {
+  loop: boolean;
+  loopStartSeconds?: number;
+  loopEndSeconds?: number;
+  startOffsetSeconds?: number;
 }
 
 function stopSource(source: AudioBufferSourceNode): void {

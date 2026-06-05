@@ -53,7 +53,7 @@ function mixNote(output: Float32Array, project: MusicProject, instrument: MusicI
   }
 }
 
-function getTickSeconds(project: MusicProject): number {
+export function getTickSeconds(project: MusicProject): number {
   return 60 / Math.max(20, project.bpm) / Math.max(1, project.ticksPerBeat);
 }
 

@@ -5,6 +5,8 @@ export type AppMode = "music" | "sfx" | "sprites" | "animator" | "font";
 
 export interface RenderActions {
   playSound: () => void;
+  playMusicLoop: () => void;
+  goToCurrentMusicPosition: () => void;
   stopSound: () => void;
   toggleFullscreen: () => void;
   undo: () => void;
@@ -34,7 +36,7 @@ export interface MusicRenderActions {
   selectNote: (noteId: string) => void;
   addNote: () => void;
   deleteNote: () => void;
-  updateNote: (patch: MusicNotePatch) => void;
+  updateNote: (noteId: string, patch: MusicNotePatch) => void;
   selectInstrument: (index: number) => void;
   addInstrument: () => void;
   deleteInstrument: () => void;

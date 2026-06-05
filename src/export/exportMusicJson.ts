@@ -1,4 +1,5 @@
 import type { MusicProject } from "../model/musicProject.js";
+import { normalizeMusicLoop } from "../model/musicProject.js";
 import { isValidSoundId } from "../utils/symbolName.js";
 
 interface ExportedMusicNote {
@@ -15,6 +16,7 @@ interface ExportedMusicProject {
   bpm: number;
   ticksPerBeat: number;
   lengthTicks: number;
+  loop: MusicProject["loop"];
   instruments: MusicProject["instruments"];
   notes: ExportedMusicNote[];
 }
@@ -30,6 +32,7 @@ export function exportMusicJson(project: MusicProject): string | null {
     bpm: project.bpm,
     ticksPerBeat: project.ticksPerBeat,
     lengthTicks: project.lengthTicks,
+    loop: normalizeMusicLoop(project.loop, project.lengthTicks),
     instruments: project.instruments,
     notes: project.notes.map((note) => ({
       instrument: note.instrument,

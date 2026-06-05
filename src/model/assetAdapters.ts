@@ -9,6 +9,7 @@ import type {
   Timestamp,
 } from "./assets.js";
 import type { MusicProject } from "./musicProject.js";
+import { normalizeMusicLoop } from "./musicProject.js";
 import type { SoundProject } from "./soundProject.js";
 import { cloneNodes } from "../sprites/document/CatPaintDocument.js";
 
@@ -91,6 +92,7 @@ function toAssetId(value: string): AssetId {
 function cloneMusicProject(project: MusicProject): MusicProject {
   return {
     ...project,
+    loop: normalizeMusicLoop(project.loop, project.lengthTicks),
     instruments: project.instruments.map((instrument) => ({ ...instrument })),
     notes: project.notes.map((note) => ({ ...note })),
   };

@@ -1,4 +1,4 @@
-import { isMusicWave, type MusicInstrument, type MusicNote, type MusicProject } from "../model/musicProject.js";
+import { isMusicWave, normalizeMusicLoop, type MusicInstrument, type MusicLoop, type MusicNote, type MusicProject } from "../model/musicProject.js";
 import { isValidSoundId } from "../utils/symbolName.js";
 
 export type ImportMusicJsonResult =
@@ -84,6 +84,8 @@ export function importMusicJson(text: string): ImportMusicJsonResult {
     notes.push(noteResult.note);
   }
 
+  const loop = parseLoop(parsed.loop, lengthTicks);
+
   return {
     ok: true,
     project: {
@@ -92,6 +94,7 @@ export function importMusicJson(text: string): ImportMusicJsonResult {
       bpm,
       ticksPerBeat,
       lengthTicks,
+      loop,
       instruments,
       notes,
     },
@@ -200,6 +203,21 @@ function parseNote(value: unknown, index: number, instrumentCount: number): Pars
       volume,
     },
   };
+}
+
+function parseLoop(value: unknown, lengthTicks: number): MusicLoop {
+  if (!isRecord(value)) {
+    return normalizeMusicLoop(undefined, lengthTicks);
+  }
+
+  return normalizeMusicLoop(
+    {
+      enabled: typeof value.enabled === "boolean" ? value.enabled : undefined,
+      startTick: parseInteger(value.startTick) ?? undefined,
+      endTick: parseInteger(value.endTick) ?? undefined,
+    },
+    lengthTicks,
+  );
 }
 
 function parseInteger(value: unknown): number | null {

@@ -1,6 +1,6 @@
 import { AudioPreview } from "./audio/audioPreview.js";
 import { convertMidiToMusicProject, sanitizeMusicId } from "./audio/midiImport.js";
-import { generateMusicSamples } from "./audio/musicGenerator.js";
+import { generateMusicSamples, getTickSeconds } from "./audio/musicGenerator.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
 import { exportFontJson } from "./export/exportFontJson.js";
 import { exportSpriteJson } from "./export/exportSpriteJson.js";
@@ -48,9 +48,9 @@ import {
   selectMusicInstrument,
   selectMusicNote,
   undoMusic,
+  updateMusicNote,
   updateMusicProject,
   updateSelectedMusicInstrument,
-  updateSelectedMusicNote,
 } from "./state/musicEditorState.js";
 import { renderApp, type AppActions, type AppMode, type AppStatus, type MusicRenderActions, type RenderActions } from "./ui/renderApp.js";
 import {
@@ -100,6 +100,7 @@ if (app === null) {
 }
 
 const preview = new AudioPreview();
+let musicPlaybackState: MusicPlaybackState | null = null;
 const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = getModeFromLocationHash() ?? "sprites";
 let status: AppStatus | null = null;
@@ -205,13 +206,18 @@ const actions: RenderActions = {
       return;
     }
 
-    if (preview.isPlaying()) {
-      preview.stop();
+    if (activeMode === "music") {
+      if (musicPlaybackState?.isPlaying) {
+        pauseMusicPlayback();
+        return;
+      }
+
+      playMusicProject(false);
       return;
     }
 
-    if (activeMode === "music") {
-      preview.playSamples(generateMusicSamples(getCurrentMusicProject()), true);
+    if (preview.isPlaying()) {
+      preview.stop();
       return;
     }
 
@@ -219,12 +225,19 @@ const actions: RenderActions = {
       preview.play(getCurrentProject());
     }
   },
+  playMusicLoop() {
+    playMusicProject(true);
+  },
+  goToCurrentMusicPosition() {
+    goToCurrentMusicPosition();
+  },
   stopSound() {
     if (activeMode === "animator") {
       stopAnimatorPlayback();
       return;
     }
 
+    stopMusicPlayback();
     preview.stop();
   },
   toggleFullscreen() {
@@ -337,6 +350,10 @@ const musicActions: MusicRenderActions = {
     renderAfterMusicChange();
   },
   selectNote(noteId) {
+    if (getMusicEditorState().selectedNoteId === noteId) {
+      return;
+    }
+
     selectMusicNote(noteId);
     render();
   },
@@ -348,8 +365,8 @@ const musicActions: MusicRenderActions = {
     deleteSelectedMusicNote();
     renderAfterMusicChange();
   },
-  updateNote(patch) {
-    updateSelectedMusicNote(patch);
+  updateNote(noteId, patch) {
+    updateMusicNote(noteId, patch);
     renderAfterMusicChange();
   },
   selectInstrument(index) {
@@ -370,6 +387,144 @@ const musicActions: MusicRenderActions = {
   },
 };
 
+function playMusicProject(loopOnly: boolean): void {
+  const project = getCurrentMusicProject();
+  const tickSeconds = getTickSeconds(project);
+  const loop = project.loop;
+  const shouldLoop = loop.enabled || loopOnly;
+  const pausedTick = musicPlaybackState?.isPlaying === false ? musicPlaybackState.pausedTick : null;
+  const startOffsetTick = getMusicPlaybackStartTick(pausedTick ?? (loopOnly ? loop.startTick : 0), shouldLoop, loop.startTick, loop.endTick, project.lengthTicks);
+  const loopStartSeconds = loop.startTick * tickSeconds;
+  const loopEndSeconds = loop.endTick * tickSeconds;
+
+  stopMusicPlayback();
+  preview.playSamples(generateMusicSamples(project), {
+    loop: shouldLoop,
+    loopStartSeconds,
+    loopEndSeconds,
+    startOffsetSeconds: startOffsetTick * tickSeconds,
+  });
+  startMusicPlayback({
+    startedAtMs: performance.now(),
+    startOffsetTick,
+    tickSeconds,
+    loop: shouldLoop,
+    loopStartTick: loop.startTick,
+    loopEndTick: loop.endTick,
+    playingNoteIds: [],
+    isPlaying: true,
+    pausedTick: startOffsetTick,
+  });
+}
+
+interface MusicPlaybackState {
+  startedAtMs: number;
+  startOffsetTick: number;
+  tickSeconds: number;
+  loop: boolean;
+  loopStartTick: number;
+  loopEndTick: number;
+  playingNoteIds: string[];
+  isPlaying: boolean;
+  pausedTick: number;
+}
+
+function startMusicPlayback(playbackState: MusicPlaybackState): void {
+  musicPlaybackState = playbackState;
+  render();
+}
+
+function pauseMusicPlayback(): void {
+  const playbackState = musicPlaybackState;
+
+  if (playbackState === null || !playbackState.isPlaying) {
+    return;
+  }
+
+  const project = getCurrentMusicProject();
+  const currentTick = getCurrentMusicPlaybackTick(playbackState, project.lengthTicks) ?? playbackState.startOffsetTick;
+
+  playbackState.isPlaying = false;
+  playbackState.pausedTick = currentTick;
+  playbackState.playingNoteIds = [];
+  preview.stop();
+
+  if (activeMode === "music") {
+    render();
+  }
+}
+
+function stopMusicPlayback(): void {
+  const playbackState = musicPlaybackState;
+
+  const shouldRender = playbackState !== null;
+  musicPlaybackState = null;
+
+  if (shouldRender && activeMode === "music") {
+    render();
+  }
+}
+
+function goToCurrentMusicPosition(): void {
+  const playbackState = musicPlaybackState;
+
+  if (playbackState === null) {
+    return;
+  }
+
+  const project = getCurrentMusicProject();
+  const currentTick = playbackState.isPlaying
+    ? getCurrentMusicPlaybackTick(playbackState, project.lengthTicks)
+    : playbackState.pausedTick;
+
+  if (currentTick === null) {
+    return;
+  }
+
+  playbackState.playingNoteIds = getMusicNoteIdsAtTick(currentTick);
+
+  if (activeMode === "music") {
+    render();
+    window.requestAnimationFrame(scrollCurrentMusicPositionIntoView);
+  }
+}
+
+function getCurrentMusicPlaybackTick(playbackState: MusicPlaybackState, lengthTicks: number): number | null {
+  const elapsedSeconds = Math.max(0, (performance.now() - playbackState.startedAtMs) / 1000);
+  let tick = playbackState.startOffsetTick + elapsedSeconds / playbackState.tickSeconds;
+
+  if (playbackState.loop && tick >= playbackState.loopEndTick) {
+    const loopLength = Math.max(1, playbackState.loopEndTick - playbackState.loopStartTick);
+    tick = playbackState.loopStartTick + ((tick - playbackState.loopStartTick) % loopLength);
+  }
+
+  if (!playbackState.loop && tick >= lengthTicks) {
+    return null;
+  }
+
+  return Math.max(0, Math.min(Math.max(0, lengthTicks - 1), tick));
+}
+
+function getMusicPlaybackStartTick(tick: number, loop: boolean, loopStartTick: number, loopEndTick: number, lengthTicks: number): number {
+  if (loop) {
+    const loopLength = Math.max(1, loopEndTick - loopStartTick);
+
+    if (tick < loopStartTick || tick >= loopEndTick) {
+      return loopStartTick + ((((tick - loopStartTick) % loopLength) + loopLength) % loopLength);
+    }
+
+    return tick;
+  }
+
+  return Math.max(0, Math.min(Math.max(0, lengthTicks - 1), tick));
+}
+
+function getMusicNoteIdsAtTick(tick: number): string[] {
+  return getCurrentMusicProject().notes
+    .filter((note) => tick >= note.startTick && tick < note.startTick + note.durationTicks)
+    .map((note) => note.id);
+}
+
 const appActions: AppActions = {
   shell: actions,
   music: musicActions,
@@ -382,14 +537,29 @@ function render(): void {
     throw new Error("Cat Meow root element was not found");
   }
 
+  const musicState = getMusicEditorState();
+
   renderApp(
     app,
     activeMode,
     getEditorState(),
-    getMusicEditorState(),
+    {
+      ...musicState,
+      playingNoteIds: musicPlaybackState?.playingNoteIds ?? [],
+      isPreviewPlaying: musicPlaybackState?.isPlaying ?? false,
+    },
     status,
     appActions,
   );
+
+}
+
+function scrollCurrentMusicPositionIntoView(): void {
+  const timelineNote = app?.querySelector<HTMLElement>(".music-timeline-note.is-playing");
+  const trackerCell = app?.querySelector<HTMLElement>(".tracker-inline-input.is-playing");
+
+  timelineNote?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  trackerCell?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
 }
 
 function createFreshSceneForMode(mode: AppMode): void {
@@ -429,6 +599,7 @@ function createFreshSceneForMode(mode: AppMode): void {
 
 function switchMode(mode: AppMode): void {
   activeMode = mode;
+  stopMusicPlayback();
   preview.stop();
   syncHashForMode(mode);
   render();
