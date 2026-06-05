@@ -7,8 +7,10 @@ import {
   FlipVertical,
   MousePointer2,
   Plus,
+  Redo2,
   Slash,
   Trash2,
+  Undo2,
   X,
 } from "lucide";
 import {
@@ -27,18 +29,28 @@ import { createElement, createField, createIconButton, createTextElement } from 
 import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, renderPreviewStatusArea } from "./renderShell.js";
 
 type FontTool = "line" | "select";
-type DragState =
-  | { kind: "draw"; start: FontPoint; current: FontPoint }
-  | { kind: "endpoint"; endpoint: 0 | 1 }
-  | null;
+type FontInspectorTab = "glyph" | "settings";
+type DragState = { kind: "draw"; start: FontPoint; current: FontPoint } | { kind: "endpoint"; endpoint: 0 | 1 } | null;
+interface FontHistorySnapshot {
+  font: VectorFont;
+  selectedGlyphChar: string | null;
+  selectedLineIndex: number | null;
+}
 
 const PRESETS = ["LITTLE ONE", "TAP TO START", "SCORE 123", "BEST 999", "GAME OVER", "PAUSED"];
+const CANVAS_SIZE = 520;
+const GRID_ORIGIN = 42;
+const GRID_CELL_SIZE = 29;
 let font = createVectorFont();
 let selectedGlyphChar = font.glyphs[0]?.char ?? null;
 let selectedLineIndex: number | null = null;
 let activeTool: FontTool = "line";
+let activeInspectorTab: FontInspectorTab = "glyph";
 let previewText = PRESETS[0] ?? "";
 let dragState: DragState = null;
+let dragHistorySnapshot: FontHistorySnapshot | null = null;
+let undoStack: FontHistorySnapshot[] = [];
+let redoStack: FontHistorySnapshot[] = [];
 let changeListener: (() => void) | null = null;
 
 export function setFontEditorChangeListener(listener: () => void): void {
@@ -53,6 +65,7 @@ export function createNewFont(): void {
   font = createVectorFont();
   selectedGlyphChar = font.glyphs[0]?.char ?? null;
   selectedLineIndex = null;
+  clearHistory();
   notifyChange();
 }
 
@@ -60,7 +73,34 @@ export function replaceCurrentFont(nextFont: VectorFont): void {
   font = cloneVectorFont(nextFont);
   selectedGlyphChar = font.glyphs[0]?.char ?? null;
   selectedLineIndex = null;
+  clearHistory();
   notifyChange();
+}
+
+export function canUndoFontEditor(): boolean {
+  return undoStack.length > 0;
+}
+
+export function canRedoFontEditor(): boolean {
+  return redoStack.length > 0;
+}
+
+export function undoFontEditor(): boolean {
+  const snapshot = undoStack.pop();
+  if (snapshot === undefined) return false;
+  redoStack.push(createHistorySnapshot());
+  restoreHistorySnapshot(snapshot);
+  notifyChange();
+  return true;
+}
+
+export function redoFontEditor(): boolean {
+  const snapshot = redoStack.pop();
+  if (snapshot === undefined) return false;
+  undoStack.push(createHistorySnapshot());
+  restoreHistorySnapshot(snapshot);
+  notifyChange();
+  return true;
 }
 
 export function handleFontEditorKeyboardShortcut(event: KeyboardEvent): boolean {
@@ -77,8 +117,8 @@ export function renderFontEditorSurface(shellActions: RenderActions): ModeSurfac
   const inspectorPanel = renderInspectorPanel("font-inspector-panel");
   const previewStatusArea = renderPreviewStatusArea("Font text preview");
   renderGlyphList(assetPanel);
-  renderCanvasArea(editorArea, shellActions);
-  renderInspector(inspectorPanel);
+  renderCanvasArea(editorArea);
+  renderInspector(inspectorPanel, shellActions);
   renderPreview(previewStatusArea);
   return { assetPanel, editorArea, inspectorPanel, previewStatusArea };
 }
@@ -112,37 +152,14 @@ function renderGlyphList(panel: HTMLElement): void {
   panel.append(heading, list);
 }
 
-function renderCanvasArea(area: HTMLElement, shellActions: RenderActions): void {
-  const top = createElement("div", "font-top-toolbar");
-  const id = textInput(font.id, "fontId");
-  id.addEventListener("change", () => {
-    font.id = id.value.toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
-    notifyChange();
-  });
-  const advance = numberInput(font.defaultAdvance);
-  advance.addEventListener("change", () => {
-    font.defaultAdvance = integerValue(advance, font.defaultAdvance);
-    notifyChange();
-  });
-  const thickness = numberInput(font.lineThickness);
-  thickness.min = "1";
-  thickness.addEventListener("change", () => {
-    font.lineThickness = Math.max(1, integerValue(thickness, font.lineThickness));
-    notifyChange();
-  });
-  const newButton = createIconButton(Plus, "Create new font", "icon-button");
-  const openButton = createIconButton(ArrowUp, "Open/import font JSON", "icon-button");
-  const saveButton = createIconButton(ArrowDown, "Save/export font JSON", "icon-button");
-  newButton.addEventListener("click", createNewFont);
-  openButton.addEventListener("click", shellActions.importJson);
-  saveButton.addEventListener("click", shellActions.exportCurrentJson);
-  top.append(createField("Font id", id), createField("Grid", disabledInput("16")), createField("Default advance", advance), createField("Line thickness", thickness), newButton, openButton, saveButton);
-
+function renderCanvasArea(area: HTMLElement): void {
   const toolRow = createElement("div", "font-tool-row");
   toolRow.append(
+    toolButton(Undo2, "Undo font edit", false, undoFontEditor, !canUndoFontEditor()),
+    toolButton(Redo2, "Redo font edit", false, redoFontEditor, !canRedoFontEditor()),
     toolButton(Slash, "Line tool", activeTool === "line", () => setTool("line")),
     toolButton(MousePointer2, "Select tool", activeTool === "select", () => setTool("select")),
-    toolButton(Trash2, "Delete selected line", false, deleteSelectedLine),
+    toolButton(Trash2, "Delete selected line", false, deleteSelectedLine, selectedLineIndex === null),
     toolButton(X, "Clear glyph", false, clearGlyph),
     toolButton(ArrowLeft, "Move glyph left", false, () => moveGlyph(-1, 0)),
     toolButton(ArrowRight, "Move glyph right", false, () => moveGlyph(1, 0)),
@@ -152,18 +169,34 @@ function renderCanvasArea(area: HTMLElement, shellActions: RenderActions): void 
     toolButton(FlipVertical, "Mirror glyph vertically", false, () => mirrorGlyph(false)),
   );
   const canvas = createElement("canvas", "font-canvas");
-  canvas.width = 580;
-  canvas.height = 580;
+  canvas.width = CANVAS_SIZE;
+  canvas.height = CANVAS_SIZE;
   bindCanvas(canvas);
   drawEditorCanvas(canvas);
   const wrap = createElement("div", "font-canvas-wrap");
+  const editorMain = createElement("div", "font-editor-main");
   wrap.append(canvas);
-  area.append(top, toolRow, wrap);
+  editorMain.append(toolRow, wrap);
+  area.append(editorMain);
 }
 
-function renderInspector(panel: HTMLElement): void {
+function renderInspector(panel: HTMLElement, shellActions: RenderActions): void {
+  const tabBar = createElement("div", "font-inspector-tabs");
+  const glyphTab = createFontTabButton("Glyph inspector", "glyph");
+  const settingsTab = createFontTabButton("Font settings", "settings");
+  tabBar.append(glyphTab, settingsTab);
+
+  const glyphPanel = createElement("div", `font-inspector-tab-panel${activeInspectorTab === "glyph" ? " is-active" : ""}`);
+  renderGlyphInspector(glyphPanel);
+
+  const settingsPanel = createElement("div", `font-inspector-tab-panel${activeInspectorTab === "settings" ? " is-active" : ""}`);
+  renderFontSettings(settingsPanel, shellActions);
+
+  panel.append(tabBar, glyphPanel, settingsPanel);
+}
+
+function renderGlyphInspector(panel: HTMLElement): void {
   const glyph = getSelectedGlyph();
-  panel.append(createTextElement("h2", "Glyph inspector"));
   if (glyph === null) {
     panel.append(createTextElement("p", "Select a glyph.", "empty-state"));
     return;
@@ -174,14 +207,16 @@ function renderInspector(panel: HTMLElement): void {
   char.addEventListener("change", () => updateGlyphChar(char.value));
   const name = textInput(glyph.name ?? "", "fontGlyphName");
   name.addEventListener("change", () => {
-    if (name.value.trim() === "") delete glyph.name;
-    else glyph.name = name.value.trim();
-    notifyChange();
+    commitFontChange(() => {
+      if (name.value.trim() === "") delete glyph.name;
+      else glyph.name = name.value.trim();
+    });
   });
   const advance = numberInput(glyph.advance ?? font.defaultAdvance);
   advance.addEventListener("change", () => {
-    glyph.advance = integerValue(advance, font.defaultAdvance);
-    notifyChange();
+    commitFontChange(() => {
+      glyph.advance = integerValue(advance, font.defaultAdvance);
+    });
   });
   panel.append(createField("Char", char), createField("Optional name", name), createField("Advance", advance));
 
@@ -197,6 +232,47 @@ function renderInspector(panel: HTMLElement): void {
   }
 }
 
+function renderFontSettings(panel: HTMLElement, shellActions: RenderActions): void {
+  const id = textInput(font.id, "fontId");
+  id.addEventListener("change", () => {
+    commitFontChange(() => {
+      font.id = id.value.toLowerCase().replace(/[^a-z0-9_-]+/g, "_");
+    });
+  });
+
+  const advance = numberInput(font.defaultAdvance);
+  advance.addEventListener("change", () => {
+    commitFontChange(() => {
+      font.defaultAdvance = integerValue(advance, font.defaultAdvance);
+    });
+  });
+
+  const thickness = numberInput(font.lineThickness);
+  thickness.min = "1";
+  thickness.addEventListener("change", () => {
+    commitFontChange(() => {
+      font.lineThickness = Math.max(1, integerValue(thickness, font.lineThickness));
+    });
+  });
+
+  const actions = createElement("div", "font-settings-actions");
+  const newButton = createIconButton(Plus, "Create new font", "icon-button");
+  const openButton = createIconButton(ArrowUp, "Open/import font JSON", "icon-button");
+  const saveButton = createIconButton(ArrowDown, "Save/export font JSON", "icon-button");
+  newButton.addEventListener("click", createNewFont);
+  openButton.addEventListener("click", shellActions.importJson);
+  saveButton.addEventListener("click", shellActions.exportCurrentJson);
+  actions.append(newButton, openButton, saveButton);
+
+  panel.append(
+    createField("Font id", id),
+    createField("Grid", disabledInput("16")),
+    createField("Default advance", advance),
+    createField("Line thickness", thickness),
+    actions,
+  );
+}
+
 function renderLineRow(glyph: FontGlyph, line: string, index: number): HTMLElement {
   const row = createElement("div", `font-line-row${selectedLineIndex === index ? " is-active" : ""}`);
   const input = textInput(line, `fontLine${index}`);
@@ -210,8 +286,11 @@ function renderLineRow(glyph: FontGlyph, line: string, index: number): HTMLEleme
   input.addEventListener("change", () => {
     const value = input.value.toUpperCase();
     if (FONT_LINE_PATTERN.test(value)) {
-      glyph.lines[index] = value;
-      selectedLineIndex = index;
+      commitFontChange(() => {
+        glyph.lines[index] = value;
+        selectedLineIndex = index;
+      });
+      return;
     }
     notifyChange();
   });
@@ -252,7 +331,7 @@ function renderPreview(panel: HTMLElement): void {
     option.textContent = preset;
     presets.append(option);
   }
-  presets.value = PRESETS.includes(previewText) ? previewText : PRESETS[0] ?? "";
+  presets.value = PRESETS.includes(previewText) ? previewText : (PRESETS[0] ?? "");
   presets.addEventListener("change", () => {
     previewText = presets.value;
     notifyChange();
@@ -272,10 +351,15 @@ function bindCanvas(canvas: HTMLCanvasElement): void {
     if (glyph === null) return;
     if (activeTool === "line") {
       dragState = { kind: "draw", start: point, current: point };
+      dragHistorySnapshot = createHistorySnapshot();
     } else {
       const endpoint = hitEndpoint(point, glyph);
-      if (endpoint !== null) dragState = { kind: "endpoint", endpoint };
-      else selectedLineIndex = hitLine(point, glyph);
+      if (endpoint !== null) {
+        dragState = { kind: "endpoint", endpoint };
+        dragHistorySnapshot = createHistorySnapshot();
+      } else {
+        selectedLineIndex = hitLine(point, glyph);
+      }
     }
     canvas.setPointerCapture(event.pointerId);
     drawEditorCanvas(canvas);
@@ -294,7 +378,9 @@ function bindCanvas(canvas: HTMLCanvasElement): void {
       glyph.lines.push(line);
       selectedLineIndex = glyph.lines.length - 1;
     }
+    commitDragHistory();
     dragState = null;
+    dragHistorySnapshot = null;
     canvas.releasePointerCapture(event.pointerId);
     notifyChange();
   });
@@ -303,8 +389,8 @@ function bindCanvas(canvas: HTMLCanvasElement): void {
 function drawEditorCanvas(canvas: HTMLCanvasElement): void {
   const context = canvas.getContext("2d");
   if (context === null) return;
-  const size = 32;
-  const origin = 50;
+  const size = GRID_CELL_SIZE;
+  const origin = GRID_ORIGIN;
   context.clearRect(0, 0, canvas.width, canvas.height);
   context.fillStyle = "#15110c";
   context.fillRect(0, 0, canvas.width, canvas.height);
@@ -320,8 +406,8 @@ function drawEditorCanvas(canvas: HTMLCanvasElement): void {
     context.moveTo(p, origin);
     context.lineTo(p, origin + 15 * size);
     context.stroke();
-    context.fillText(index.toString(16).toUpperCase(), p - 3, 30);
-    context.fillText(index.toString(16).toUpperCase(), 22, p + 4);
+    context.fillText(index.toString(16).toUpperCase(), p - 3, 27);
+    context.fillText(index.toString(16).toUpperCase(), 18, p + 4);
   }
   const glyph = getSelectedGlyph();
   if (glyph !== null) {
@@ -335,8 +421,8 @@ function drawEditorCanvas(canvas: HTMLCanvasElement): void {
 function drawCanvasLine(context: CanvasRenderingContext2D, line: string, selected: boolean): void {
   const points = decodeFontLine(line);
   if (points === null) return;
-  const origin = 50;
-  const size = 32;
+  const origin = GRID_ORIGIN;
+  const size = GRID_CELL_SIZE;
   context.strokeStyle = selected ? "#fff4bb" : "#ffc71c";
   context.lineWidth = selected ? 5 : 3;
   context.lineCap = "round";
@@ -404,14 +490,15 @@ function drawTextPreview(canvas: HTMLCanvasElement): void {
 function addGlyph(): void {
   const value = window.prompt("Character for the new glyph:", "");
   if (value === null || value.length !== 1 || font.glyphs.some((glyph) => glyph.char === value)) return;
-  font.glyphs.push({
-    char: value,
-    ...(value === " " ? { name: "space", advance: 6 } : {}),
-    lines: [],
+  commitFontChange(() => {
+    font.glyphs.push({
+      char: value,
+      ...(value === " " ? { name: "space", advance: 6 } : {}),
+      lines: [],
+    });
+    selectedGlyphChar = value;
+    selectedLineIndex = null;
   });
-  selectedGlyphChar = value;
-  selectedLineIndex = null;
-  notifyChange();
 }
 
 function updateGlyphChar(value: string): void {
@@ -420,18 +507,20 @@ function updateGlyphChar(value: string): void {
     notifyChange();
     return;
   }
-  glyph.char = value;
-  selectedGlyphChar = value;
-  notifyChange();
+  commitFontChange(() => {
+    glyph.char = value;
+    selectedGlyphChar = value;
+  });
 }
 
 function deleteSelectedGlyph(): void {
   const index = font.glyphs.findIndex((glyph) => glyph.char === selectedGlyphChar);
   if (index === -1 || !window.confirm("Delete the selected glyph?")) return;
-  font.glyphs.splice(index, 1);
-  selectedGlyphChar = font.glyphs[Math.min(index, font.glyphs.length - 1)]?.char ?? null;
-  selectedLineIndex = null;
-  notifyChange();
+  commitFontChange(() => {
+    font.glyphs.splice(index, 1);
+    selectedGlyphChar = font.glyphs[Math.min(index, font.glyphs.length - 1)]?.char ?? null;
+    selectedLineIndex = null;
+  });
 }
 
 function deleteSelectedLine(): void {
@@ -441,17 +530,19 @@ function deleteSelectedLine(): void {
 function deleteLine(index: number): void {
   const glyph = getSelectedGlyph();
   if (glyph === null) return;
-  glyph.lines.splice(index, 1);
-  selectedLineIndex = null;
-  notifyChange();
+  commitFontChange(() => {
+    glyph.lines.splice(index, 1);
+    selectedLineIndex = null;
+  });
 }
 
 function clearGlyph(): void {
   const glyph = getSelectedGlyph();
   if (glyph === null || glyph.lines.length === 0 || !window.confirm("Clear every line in this glyph?")) return;
-  glyph.lines = [];
-  selectedLineIndex = null;
-  notifyChange();
+  commitFontChange(() => {
+    glyph.lines = [];
+    selectedLineIndex = null;
+  });
 }
 
 function moveGlyph(dx: number, dy: number): void {
@@ -460,34 +551,34 @@ function moveGlyph(dx: number, dy: number): void {
   const decoded = glyph.lines.map(decodeFontLine);
   if (
     decoded.some(
-      (points) =>
-        points === null ||
-        points.some((point) => point.x + dx < 0 || point.x + dx > 15 || point.y + dy < 0 || point.y + dy > 15),
+      (points) => points === null || points.some((point) => point.x + dx < 0 || point.x + dx > 15 || point.y + dy < 0 || point.y + dy > 15),
     )
   ) {
     return;
   }
-  glyph.lines = decoded.map((points) =>
-    encodeFontLine(
-      { x: (points?.[0].x ?? 0) + dx, y: (points?.[0].y ?? 0) + dy },
-      { x: (points?.[1].x ?? 0) + dx, y: (points?.[1].y ?? 0) + dy },
-    ),
-  );
-  notifyChange();
+  commitFontChange(() => {
+    glyph.lines = decoded.map((points) =>
+      encodeFontLine(
+        { x: (points?.[0].x ?? 0) + dx, y: (points?.[0].y ?? 0) + dy },
+        { x: (points?.[1].x ?? 0) + dx, y: (points?.[1].y ?? 0) + dy },
+      ),
+    );
+  });
 }
 
 function mirrorGlyph(horizontal: boolean): void {
   const glyph = getSelectedGlyph();
   if (glyph === null) return;
-  glyph.lines = glyph.lines.map((line) => {
-    const points = decodeFontLine(line);
-    if (points === null) return line;
-    return encodeFontLine(
-      { x: horizontal ? 15 - points[0].x : points[0].x, y: horizontal ? points[0].y : 15 - points[0].y },
-      { x: horizontal ? 15 - points[1].x : points[1].x, y: horizontal ? points[1].y : 15 - points[1].y },
-    );
+  commitFontChange(() => {
+    glyph.lines = glyph.lines.map((line) => {
+      const points = decodeFontLine(line);
+      if (points === null) return line;
+      return encodeFontLine(
+        { x: horizontal ? 15 - points[0].x : points[0].x, y: horizontal ? points[0].y : 15 - points[0].y },
+        { x: horizontal ? 15 - points[1].x : points[1].x, y: horizontal ? points[1].y : 15 - points[1].y },
+      );
+    });
   });
-  notifyChange();
 }
 
 function updateEndpoint(index: number, value: string): void {
@@ -497,15 +588,17 @@ function updateEndpoint(index: number, value: string): void {
   }
   const glyph = getSelectedGlyph();
   if (glyph === null || selectedLineIndex === null) return;
+  const lineIndex = selectedLineIndex;
   const points = decodeFontLine(glyph.lines[selectedLineIndex] ?? "");
   if (points === null) return;
   const coordinate = parseInt(value, 16);
-  if (index === 0) points[0].x = coordinate;
-  if (index === 1) points[0].y = coordinate;
-  if (index === 2) points[1].x = coordinate;
-  if (index === 3) points[1].y = coordinate;
-  glyph.lines[selectedLineIndex] = encodeFontLine(points[0], points[1]);
-  notifyChange();
+  commitFontChange(() => {
+    if (index === 0) points[0].x = coordinate;
+    if (index === 1) points[0].y = coordinate;
+    if (index === 2) points[1].x = coordinate;
+    if (index === 3) points[1].y = coordinate;
+    glyph.lines[lineIndex] = encodeFontLine(points[0], points[1]);
+  });
 }
 
 function setSelectedEndpoint(endpoint: 0 | 1, point: FontPoint): void {
@@ -550,8 +643,8 @@ function canvasPoint(canvas: HTMLCanvasElement, event: PointerEvent): FontPoint 
   const scaleX = canvas.width / rect.width;
   const scaleY = canvas.height / rect.height;
   return {
-    x: clampFontCoordinate(((event.clientX - rect.left) * scaleX - 50) / 32),
-    y: clampFontCoordinate(((event.clientY - rect.top) * scaleY - 50) / 32),
+    x: clampFontCoordinate(((event.clientX - rect.left) * scaleX - GRID_ORIGIN) / GRID_CELL_SIZE),
+    y: clampFontCoordinate(((event.clientY - rect.top) * scaleY - GRID_ORIGIN) / GRID_CELL_SIZE),
   };
 }
 
@@ -564,8 +657,34 @@ function setTool(tool: FontTool): void {
   notifyChange();
 }
 
-function toolButton(icon: Parameters<typeof createIconButton>[0], title: string, active: boolean, action: () => void): HTMLButtonElement {
+function createFontTabButton(label: string, tab: FontInspectorTab): HTMLButtonElement {
+  const button = createElement("button", `font-tab-button${activeInspectorTab === tab ? " is-active" : ""}`);
+  button.type = "button";
+  button.textContent = label;
+  button.title = `Show ${label}`;
+  button.setAttribute("aria-label", `Show ${label}`);
+  button.addEventListener("click", () => {
+    activeInspectorTab = tab;
+    document.querySelectorAll<HTMLElement>(".font-tab-button").forEach((candidate) => {
+      candidate.classList.toggle("is-active", candidate === button);
+    });
+    document.querySelectorAll<HTMLElement>(".font-inspector-tab-panel").forEach((candidate, index) => {
+      candidate.classList.toggle("is-active", (tab === "glyph" && index === 0) || (tab === "settings" && index === 1));
+    });
+  });
+
+  return button;
+}
+
+function toolButton(
+  icon: Parameters<typeof createIconButton>[0],
+  title: string,
+  active: boolean,
+  action: () => void,
+  disabled = false,
+): HTMLButtonElement {
   const button = createIconButton(icon, title, `tool-button${active ? " primary" : ""}`);
+  button.disabled = disabled;
   button.addEventListener("click", action);
   return button;
 }
@@ -603,4 +722,52 @@ function samePoint(a: FontPoint, b: FontPoint): boolean {
 
 function notifyChange(): void {
   changeListener?.();
+}
+
+function createHistorySnapshot(): FontHistorySnapshot {
+  return {
+    font: cloneVectorFont(font),
+    selectedGlyphChar,
+    selectedLineIndex,
+  };
+}
+
+function restoreHistorySnapshot(snapshot: FontHistorySnapshot): void {
+  font = cloneVectorFont(snapshot.font);
+  selectedGlyphChar = snapshot.selectedGlyphChar || "";
+  selectedLineIndex = snapshot.selectedLineIndex;
+  dragState = null;
+  dragHistorySnapshot = null;
+}
+
+function commitFontChange(mutator: () => void): void {
+  const before = createHistorySnapshot();
+  const beforeKey = historyKey(before);
+  mutator();
+
+  if (beforeKey !== historyKey(createHistorySnapshot())) {
+    undoStack.push(before);
+    redoStack = [];
+  }
+
+  notifyChange();
+}
+
+function commitDragHistory(): void {
+  if (dragHistorySnapshot === null) return;
+
+  if (historyKey(dragHistorySnapshot) !== historyKey(createHistorySnapshot())) {
+    undoStack.push(dragHistorySnapshot);
+    redoStack = [];
+  }
+}
+
+function clearHistory(): void {
+  undoStack = [];
+  redoStack = [];
+  dragHistorySnapshot = null;
+}
+
+function historyKey(snapshot: FontHistorySnapshot): string {
+  return JSON.stringify(snapshot);
 }

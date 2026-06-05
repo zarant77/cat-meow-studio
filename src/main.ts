@@ -71,11 +71,15 @@ import {
   undoSpriteEditor,
 } from "./ui/renderSpriteEditor.js";
 import {
+  canRedoFontEditor,
+  canUndoFontEditor,
   createNewFont,
   getCurrentFont,
   handleFontEditorKeyboardShortcut,
+  redoFontEditor,
   replaceCurrentFont,
   setFontEditorChangeListener,
+  undoFontEditor,
 } from "./ui/renderFontEditor.js";
 import {
   findProjectAsset,
@@ -112,6 +116,9 @@ const legacyProjectStorageKeys = [
 const actions: RenderActions = {
   undo() {
     if (activeMode === "font") {
+      if (undoFontEditor()) {
+        render();
+      }
       return;
     }
     if (activeMode === "music" && undoMusic()) {
@@ -132,6 +139,9 @@ const actions: RenderActions = {
   },
   redo() {
     if (activeMode === "font") {
+      if (redoFontEditor()) {
+        render();
+      }
       return;
     }
     if (activeMode === "music" && redoMusic()) {
@@ -151,7 +161,11 @@ const actions: RenderActions = {
     }
   },
   canUndo() {
-    if (activeMode === "animator" || activeMode === "font") {
+    if (activeMode === "font") {
+      return canUndoFontEditor();
+    }
+
+    if (activeMode === "animator") {
       return false;
     }
 
@@ -166,7 +180,11 @@ const actions: RenderActions = {
     return canUndoSpriteEditor();
   },
   canRedo() {
-    if (activeMode === "animator" || activeMode === "font") {
+    if (activeMode === "font") {
+      return canRedoFontEditor();
+    }
+
+    if (activeMode === "animator") {
       return false;
     }
 
