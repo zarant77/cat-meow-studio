@@ -1,3 +1,4 @@
+import type { MusicPreviewQuality } from "../audio/musicGenerator.js";
 import { normalizeMusicLoop, type MusicInstrument, type MusicLoop, type MusicNote, type MusicProject } from "../model/musicProject.js";
 import { sanitizeSoundId } from "../utils/validation.js";
 
@@ -7,6 +8,9 @@ export interface MusicEditorState {
   selectedInstrumentIndex: number | null;
   playingNoteIds: string[];
   isPreviewPlaying: boolean;
+  isPreviewRendering: boolean;
+  previewQuality: MusicPreviewQuality;
+  previewSamples: Float32Array;
 }
 
 export type MusicProjectPatch = Partial<Pick<MusicProject, "id" | "bpm" | "ticksPerBeat" | "lengthTicks">> & {
@@ -68,6 +72,9 @@ let musicState: MusicEditorState = {
   selectedInstrumentIndex: 0,
   playingNoteIds: [],
   isPreviewPlaying: false,
+  isPreviewRendering: false,
+  previewQuality: "fast",
+  previewSamples: new Float32Array(0),
 };
 
 let musicHistoryState: MusicHistoryState = {
@@ -82,6 +89,9 @@ export function getMusicEditorState(): MusicEditorState {
     project: cloneMusicProject(musicState.project),
     playingNoteIds: [],
     isPreviewPlaying: false,
+    isPreviewRendering: false,
+    previewQuality: "fast",
+    previewSamples: new Float32Array(0),
   };
 }
 
@@ -153,14 +163,22 @@ export function updateMusicProject(patch: MusicProjectPatch): void {
     return;
   }
 
-  recordMusicHistoryEntry();
-  musicState = {
-    ...musicState,
-    project: {
-      ...musicState.project,
-      ...normalizedPatch,
+  const nextProject: MusicProject = {
+    ...musicState.project,
+    ...normalizedPatch,
+    loop: {
+      ...musicState.project.loop,
+      ...normalizedPatch.loop,
     },
   };
+
+  recordMusicHistoryEntry();
+
+  musicState = {
+    ...musicState,
+    project: nextProject,
+  };
+
   syncPresentMusicHistory();
 }
 
@@ -261,11 +279,7 @@ export function updateMusicNote(noteId: string, patch: MusicNotePatch): void {
     ...musicState,
     project: {
       ...musicState.project,
-      notes: sortMusicNotes(
-        musicState.project.notes.map((note) =>
-          note.id === noteId ? { ...note, ...normalizedPatch } : note,
-        ),
-      ),
+      notes: sortMusicNotes(musicState.project.notes.map((note) => (note.id === noteId ? { ...note, ...normalizedPatch } : note))),
     },
     selectedNoteId: noteId,
     selectedInstrumentIndex: normalizedPatch.instrument ?? musicState.selectedInstrumentIndex,
@@ -352,14 +366,7 @@ export function getSelectedMusicNote(state: MusicEditorState): MusicNote | null 
   return state.project.notes.find((note) => note.id === state.selectedNoteId) ?? null;
 }
 
-function createNote(
-  id: string,
-  instrument: number,
-  note: number,
-  startTick: number,
-  durationTicks: number,
-  volume: number,
-): MusicNote {
+function createNote(id: string, instrument: number, note: number, startTick: number, durationTicks: number, volume: number): MusicNote {
   return {
     id,
     instrument,
@@ -519,7 +526,11 @@ function syncPresentMusicHistory(): void {
   };
 }
 
-function applyMusicProject(project: MusicProject, preferredSelectedNoteId: string | null, preferredSelectedInstrumentIndex: number | null): void {
+function applyMusicProject(
+  project: MusicProject,
+  preferredSelectedNoteId: string | null,
+  preferredSelectedInstrumentIndex: number | null,
+): void {
   const clonedProject = cloneMusicProject(project);
   const selectedNoteId = getSaneSelectedNoteId(clonedProject.notes, preferredSelectedNoteId);
   const selectedInstrumentIndex = getSaneSelectedInstrumentIndex(clonedProject.instruments, preferredSelectedInstrumentIndex);
@@ -530,6 +541,9 @@ function applyMusicProject(project: MusicProject, preferredSelectedNoteId: strin
     selectedInstrumentIndex,
     playingNoteIds: [],
     isPreviewPlaying: false,
+    isPreviewRendering: false,
+    previewQuality: "fast",
+    previewSamples: new Float32Array(0),
   };
   nextNoteNumber = Math.max(getNextNoteNumber(clonedProject.notes), nextNoteNumber);
   syncPresentMusicHistory();
@@ -600,7 +614,5 @@ function cloneMusicProject(project: MusicProject): MusicProject {
 }
 
 function sortMusicNotes(notes: MusicNote[]): MusicNote[] {
-  return [...notes].sort(
-    (left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note,
-  );
+  return [...notes].sort((left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note);
 }

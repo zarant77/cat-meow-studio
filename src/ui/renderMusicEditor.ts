@@ -1,5 +1,4 @@
 import { CirclePlus, LocateFixed, Pause, Play, Plus, Repeat, Redo2, Square, Trash2, Undo2 } from "lucide";
-import { generateMusicSamples } from "../audio/musicGenerator.js";
 import { isMusicWave, musicWaves, normalizeMusicLoop } from "../model/musicProject.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
 import { appendChildren, createElement, createField, createIconButton, createTextElement } from "./dom.js";
@@ -24,12 +23,16 @@ export function renderMusicPreview(state: MusicEditorState): HTMLElement {
   const preview = renderPreviewStatusArea("Music preview");
 
   const waveform = createElement("div", "waveform music-waveform-preview");
-  waveform.append(renderWaveformSamples(generateMusicSamples(state.project)), renderLoopOverlay(state.project.lengthTicks, state.project.loop));
+  waveform.append(
+    renderWaveformSamples(state.previewSamples),
+    renderLoopOverlay(state.project.lengthTicks, state.project.loop),
+  );
 
   const previewMeta = createElement("div", "preview-meta");
   previewMeta.append(
     createTextElement("span", "Music"),
     createTextElement("strong", `${state.project.id} - ${state.project.bpm} bpm - ${state.project.lengthTicks} ticks`),
+    createTextElement("span", state.isPreviewRendering ? `Rendering ${state.previewQuality}` : `Preview ${state.previewQuality}`),
   );
   preview.append(waveform, previewMeta);
 
@@ -70,7 +73,11 @@ function renderMusicToolbar(state: MusicEditorState, actions: MusicRenderActions
   const buttons: Array<[AppIcon, string, () => void]> = [
     [Undo2, "Undo (Ctrl/Cmd+Z)", shellActions.undo],
     [Redo2, "Redo (Ctrl/Cmd+Shift+Z)", shellActions.redo],
-    [state.isPreviewPlaying ? Pause : Play, state.isPreviewPlaying ? "Pause preview (Space)" : "Play preview (Space)", shellActions.playSound],
+    [
+      state.isPreviewPlaying ? Pause : Play,
+      state.isPreviewPlaying ? "Pause preview (Space)" : "Play preview (Space)",
+      shellActions.playSound,
+    ],
     [Repeat, "Play loop", shellActions.playMusicLoop],
     [LocateFixed, "Go to current position", shellActions.goToCurrentMusicPosition],
     [Square, "Stop preview", shellActions.stopSound],
@@ -166,7 +173,11 @@ function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderAction
   }
 
   ruler.append(renderLoopOverlay(lengthTicks, loop));
-  lanes.append(renderLoopOverlay(lengthTicks, loop), renderLoopMarker("start", lengthTicks, loop, actions), renderLoopMarker("end", lengthTicks, loop, actions));
+  lanes.append(
+    renderLoopOverlay(lengthTicks, loop),
+    renderLoopMarker("start", lengthTicks, loop, actions),
+    renderLoopMarker("end", lengthTicks, loop, actions),
+  );
 
   state.project.instruments.forEach((instrument, instrumentIndex) => {
     const lane = createElement("div", "music-timeline-lane");
@@ -198,8 +209,7 @@ function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderAction
 function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
   const panel = renderInspectorPanel("music-inspector");
   const selectedNote = getSelectedMusicNote(state);
-  const selectedInstrument =
-    state.selectedInstrumentIndex === null ? undefined : state.project.instruments[state.selectedInstrumentIndex];
+  const selectedInstrument = state.selectedInstrumentIndex === null ? undefined : state.project.instruments[state.selectedInstrumentIndex];
   const title = createElement("div", "panel-title");
   const deleteButton = createIconButton(Trash2, "Delete selected note (Delete)", "icon-button danger");
   deleteButton.disabled = selectedNote === null;
@@ -209,16 +219,28 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
 
   if (selectedNote !== null) {
     panel.append(createTextElement("h2", "Note"));
-    panel.append(createNumberField("Start tick", selectedNote.startTick, "noteStart", (value) => actions.updateNote(selectedNote.id, { startTick: value })));
-    panel.append(createTextField("Pitch", getNoteName(selectedNote.note), "notePitch", (value) => {
-      const note = parseNoteValue(value);
+    panel.append(
+      createNumberField("Start tick", selectedNote.startTick, "noteStart", (value) =>
+        actions.updateNote(selectedNote.id, { startTick: value }),
+      ),
+    );
+    panel.append(
+      createTextField("Pitch", getNoteName(selectedNote.note), "notePitch", (value) => {
+        const note = parseNoteValue(value);
 
-      if (note !== null) {
-        actions.updateNote(selectedNote.id, { note });
-      }
-    }));
-    panel.append(createNumberField("Duration", selectedNote.durationTicks, "noteDuration", (value) => actions.updateNote(selectedNote.id, { durationTicks: value })));
-    panel.append(createNumberField("Volume", selectedNote.volume, "noteVolume", (value) => actions.updateNote(selectedNote.id, { volume: value })));
+        if (note !== null) {
+          actions.updateNote(selectedNote.id, { note });
+        }
+      }),
+    );
+    panel.append(
+      createNumberField("Duration", selectedNote.durationTicks, "noteDuration", (value) =>
+        actions.updateNote(selectedNote.id, { durationTicks: value }),
+      ),
+    );
+    panel.append(
+      createNumberField("Volume", selectedNote.volume, "noteVolume", (value) => actions.updateNote(selectedNote.id, { volume: value })),
+    );
     panel.append(renderNoteInstrumentField(state, selectedNote.id, selectedNote.instrument, actions));
   } else {
     panel.append(createTextElement("p", "Select or add a note.", "empty-state"));
@@ -246,9 +268,15 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
       }
     });
     panel.append(createField("Wave", waveSelect));
-    panel.append(createNumberField("Inst volume", selectedInstrument.volume, "instVolume", (value) => actions.updateInstrument({ volume: value })));
-    panel.append(createNumberField("Attack ms", selectedInstrument.attackMs, "instAttack", (value) => actions.updateInstrument({ attackMs: value })));
-    panel.append(createNumberField("Decay ms", selectedInstrument.decayMs, "instDecay", (value) => actions.updateInstrument({ decayMs: value })));
+    panel.append(
+      createNumberField("Inst volume", selectedInstrument.volume, "instVolume", (value) => actions.updateInstrument({ volume: value })),
+    );
+    panel.append(
+      createNumberField("Attack ms", selectedInstrument.attackMs, "instAttack", (value) => actions.updateInstrument({ attackMs: value })),
+    );
+    panel.append(
+      createNumberField("Decay ms", selectedInstrument.decayMs, "instDecay", (value) => actions.updateInstrument({ decayMs: value })),
+    );
   }
 
   return panel;
@@ -370,8 +398,16 @@ function createInlineNoteInput(note: { id: string; note: number }, className: st
   return input;
 }
 
-function bindInlineEditKeys(element: HTMLInputElement | HTMLSelectElement, initialValue: string, onCancel: (initialValue: string) => void): void {
-  element.addEventListener("keydown", (event) => {
+function bindInlineEditKeys(
+  element: HTMLInputElement | HTMLSelectElement,
+  initialValue: string,
+  onCancel: (initialValue: string) => void,
+): void {
+  const handleKeyDown = (event: Event): void => {
+    if (!(event instanceof KeyboardEvent)) {
+      return;
+    }
+
     if (event.key === "Enter") {
       element.blur();
       return;
@@ -383,7 +419,9 @@ function bindInlineEditKeys(element: HTMLInputElement | HTMLSelectElement, initi
       onCancel(initialValue);
       element.blur();
     }
-  });
+  };
+
+  element.addEventListener("keydown", handleKeyDown);
 }
 
 function renderLoopOverlay(lengthTicks: number, loop: { enabled: boolean; startTick: number; endTick: number }): HTMLElement {

@@ -1,6 +1,6 @@
 import { AudioPreview } from "./audio/audioPreview.js";
 import { convertMidiToMusicProject, sanitizeMusicId } from "./audio/midiImport.js";
-import { generateMusicSamples, getTickSeconds } from "./audio/musicGenerator.js";
+import { generateMusicSamples, getTickSeconds, type MusicPreviewQuality } from "./audio/musicGenerator.js";
 import { exportMusicJson } from "./export/exportMusicJson.js";
 import { exportFontJson } from "./export/exportFontJson.js";
 import { exportSpriteJson } from "./export/exportSpriteJson.js";
@@ -101,6 +101,14 @@ if (app === null) {
 
 const preview = new AudioPreview();
 let musicPlaybackState: MusicPlaybackState | null = null;
+let musicPreviewState: MusicPreviewState = {
+  samples: new Float32Array(0),
+  dirty: true,
+  isRendering: false,
+  quality: "fast",
+  debounceId: null,
+};
+let musicPreviewRenderVersion = 0;
 const jsonFileInput = createJsonFileInput();
 let activeMode: AppMode = getModeFromLocationHash() ?? "sprites";
 let status: AppStatus | null = null;
@@ -347,7 +355,7 @@ const actions: RenderActions = {
 const musicActions: MusicRenderActions = {
   updateProject(patch) {
     updateMusicProject(patch);
-    renderAfterMusicChange();
+    renderAfterMusicChange(doesMusicProjectPatchAffectAudio(patch));
   },
   selectNote(noteId) {
     if (getMusicEditorState().selectedNoteId === noteId) {
@@ -398,23 +406,151 @@ function playMusicProject(loopOnly: boolean): void {
   const loopEndSeconds = loop.endTick * tickSeconds;
 
   stopMusicPlayback();
-  preview.playSamples(generateMusicSamples(project), {
-    loop: shouldLoop,
-    loopStartSeconds,
-    loopEndSeconds,
-    startOffsetSeconds: startOffsetTick * tickSeconds,
+  getMusicPreviewSamplesForPlay((samples) => {
+    preview.playSamples(samples, {
+      loop: shouldLoop,
+      loopStartSeconds,
+      loopEndSeconds,
+      startOffsetSeconds: startOffsetTick * tickSeconds,
+    });
+    startMusicPlayback({
+      startedAtMs: performance.now(),
+      startOffsetTick,
+      tickSeconds,
+      loop: shouldLoop,
+      loopStartTick: loop.startTick,
+      loopEndTick: loop.endTick,
+      playingNoteIds: [],
+      isPlaying: true,
+      pausedTick: startOffsetTick,
+    });
   });
-  startMusicPlayback({
-    startedAtMs: performance.now(),
-    startOffsetTick,
-    tickSeconds,
-    loop: shouldLoop,
-    loopStartTick: loop.startTick,
-    loopEndTick: loop.endTick,
-    playingNoteIds: [],
-    isPlaying: true,
-    pausedTick: startOffsetTick,
-  });
+}
+
+interface MusicPreviewState {
+  samples: Float32Array;
+  dirty: boolean;
+  isRendering: boolean;
+  quality: MusicPreviewQuality;
+  debounceId: number | null;
+}
+
+function markMusicPreviewDirty(scheduleRender = activeMode === "music"): void {
+  musicPreviewRenderVersion += 1;
+  musicPreviewState = {
+    ...musicPreviewState,
+    dirty: true,
+  };
+
+  if (musicPreviewState.debounceId !== null) {
+    window.clearTimeout(musicPreviewState.debounceId);
+  }
+
+  if (scheduleRender) {
+    scheduleMusicPreviewRender("fast", 220);
+  }
+}
+
+function scheduleMusicPreviewRender(quality: MusicPreviewQuality, delayMs: number): void {
+  const renderVersion = musicPreviewRenderVersion;
+
+  if (musicPreviewState.debounceId !== null) {
+    window.clearTimeout(musicPreviewState.debounceId);
+  }
+
+  musicPreviewState = {
+    ...musicPreviewState,
+    debounceId: window.setTimeout(() => {
+      musicPreviewState = {
+        ...musicPreviewState,
+        debounceId: null,
+      };
+      renderMusicPreviewSamples(quality, renderVersion);
+    }, delayMs),
+  };
+}
+
+function getMusicPreviewSamplesForPlay(onReady: (samples: Float32Array) => void): void {
+  if (!musicPreviewState.dirty && musicPreviewState.quality === "rich" && musicPreviewState.samples.length > 0) {
+    onReady(musicPreviewState.samples);
+    return;
+  }
+
+  if (musicPreviewState.debounceId !== null) {
+    window.clearTimeout(musicPreviewState.debounceId);
+  }
+
+  const renderVersion = ++musicPreviewRenderVersion;
+  musicPreviewState = {
+    ...musicPreviewState,
+    debounceId: null,
+    dirty: true,
+    isRendering: true,
+    quality: "rich",
+  };
+  render();
+
+  window.setTimeout(() => {
+    const samples = renderMusicPreviewSamples("rich", renderVersion);
+
+    if (samples !== null) {
+      onReady(samples);
+    }
+  }, 0);
+}
+
+function renderMusicPreviewSamples(quality: MusicPreviewQuality, renderVersion: number): Float32Array | null {
+  const project = getCurrentMusicProject();
+  const startedAt = performance.now();
+  musicPreviewState = {
+    ...musicPreviewState,
+    isRendering: true,
+    quality,
+  };
+
+  const samples = generateMusicSamples(project, { quality });
+  const elapsedMs = performance.now() - startedAt;
+
+  if (renderVersion !== musicPreviewRenderVersion) {
+    musicPreviewState = {
+      ...musicPreviewState,
+      dirty: true,
+      isRendering: false,
+    };
+    if (activeMode === "music") {
+      render();
+    }
+    return null;
+  }
+
+  musicPreviewState = {
+    ...musicPreviewState,
+    samples,
+    dirty: false,
+    isRendering: false,
+    quality,
+  };
+  logMusicPreviewRender(project.notes.length, samples.length, quality, elapsedMs);
+
+  if (activeMode === "music") {
+    render();
+  }
+
+  return samples;
+}
+
+function logMusicPreviewRender(noteCount: number, sampleCount: number, quality: MusicPreviewQuality, elapsedMs: number): void {
+  if (!isDevelopmentHost()) {
+    return;
+  }
+
+  console.info(
+    `Music preview render: ${Math.round(elapsedMs)} ms, notes: ${noteCount}, samples: ${sampleCount}, quality: ${quality}`,
+  );
+}
+
+function isDevelopmentHost(): boolean {
+  return window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 }
 
 interface MusicPlaybackState {
@@ -547,6 +683,9 @@ function render(): void {
       ...musicState,
       playingNoteIds: musicPlaybackState?.playingNoteIds ?? [],
       isPreviewPlaying: musicPlaybackState?.isPlaying ?? false,
+      isPreviewRendering: musicPreviewState.isRendering,
+      previewQuality: musicPreviewState.quality,
+      previewSamples: musicPreviewState.samples,
     },
     status,
     appActions,
@@ -585,6 +724,7 @@ function createFreshSceneForMode(mode: AppMode): void {
   if (mode === "music") {
     createNewMusicProject();
     updateMusicProject({ id: "music" });
+    markMusicPreviewDirty();
     switchMode("music");
     render();
     markCurrentModeSaved();
@@ -603,6 +743,9 @@ function switchMode(mode: AppMode): void {
   preview.stop();
   syncHashForMode(mode);
   render();
+  if (mode === "music" && musicPreviewState.dirty) {
+    scheduleMusicPreviewRender("fast", 220);
+  }
 }
 
 function createJsonFileInput(): HTMLInputElement {
@@ -681,6 +824,7 @@ async function importSelectedJsonFile(input: HTMLInputElement): Promise<void> {
       }
 
       replaceCurrentMusicProject(musicResult.project);
+      markMusicPreviewDirty();
       saveCurrentMusicProject();
       preview.stop();
       switchMode("music");
@@ -748,6 +892,7 @@ async function importMidiFileIntoEditor(file: File): Promise<void> {
   });
 
   replaceCurrentMusicProject(project);
+  markMusicPreviewDirty();
   saveCurrentMusicProject();
   preview.stop();
   switchMode("music");
@@ -825,9 +970,16 @@ function saveCurrentProject(): void {
   syncCurrentSfxAsset();
 }
 
-function renderAfterMusicChange(): void {
+function renderAfterMusicChange(markPreviewDirty = true): void {
+  if (markPreviewDirty) {
+    markMusicPreviewDirty();
+  }
   saveCurrentMusicProject();
   render();
+}
+
+function doesMusicProjectPatchAffectAudio(patch: Parameters<MusicRenderActions["updateProject"]>[0]): boolean {
+  return patch.bpm !== undefined || patch.ticksPerBeat !== undefined || patch.lengthTicks !== undefined || patch.loop !== undefined;
 }
 
 function saveCurrentMusicProject(): void {
@@ -955,6 +1107,9 @@ function boot(): void {
   resetProjectState({ emit: false });
   syncHashForMode(activeMode);
   render();
+  if (activeMode === "music") {
+    scheduleMusicPreviewRender("fast", 220);
+  }
   markCurrentModeSaved();
 }
 
@@ -1237,6 +1392,9 @@ window.addEventListener("hashchange", () => {
   activeMode = mode;
   preview.stop();
   render();
+  if (mode === "music" && musicPreviewState.dirty) {
+    scheduleMusicPreviewRender("fast", 220);
+  }
   ensureCurrentModeSnapshot();
 });
 
