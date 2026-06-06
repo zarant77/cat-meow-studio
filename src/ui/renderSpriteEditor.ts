@@ -35,7 +35,8 @@ import { renderAssetSidebarPanel, renderEditorArea, renderInspectorPanel, render
 
 const spriteEditorController = new SpriteEditorController();
 spriteEditorController.setAssetChangeListener(syncSpriteEditorAsset);
-let activeSpriteInspectorTab: "primitives" | "properties" = "primitives";
+type SpriteInspectorTab = "primitives" | "properties" | "example";
+let activeSpriteInspectorTab: SpriteInspectorTab = "primitives";
 
 export function renderSpriteEditorSurface(): ModeSurface {
   const mount = createSpriteMount();
@@ -69,6 +70,13 @@ function createSpriteMount(): {
   spriteIdInput: HTMLInputElement;
   canvasWidthInput: HTMLInputElement;
   canvasHeightInput: HTMLInputElement;
+  exampleImageInput: HTMLInputElement;
+  exampleImageName: HTMLElement;
+  exampleOpacityInput: HTMLInputElement;
+  exampleOffsetXInput: HTMLInputElement;
+  exampleOffsetYInput: HTMLInputElement;
+  exampleScaleInput: HTMLInputElement;
+  deleteExampleButton: HTMLButtonElement;
   foregroundColorButton: HTMLButtonElement;
   backgroundColorButton: HTMLButtonElement;
   colorInput: HTMLInputElement;
@@ -100,6 +108,14 @@ function createSpriteMount(): {
   spriteIdInput.dataset.field = "spriteId";
   const canvasWidthInput = createCanvasSizeInput("spriteCanvasWidth");
   const canvasHeightInput = createCanvasSizeInput("spriteCanvasHeight");
+  const exampleImageInput = createSpriteInput("file");
+  exampleImageInput.accept = "image/*";
+  const exampleImageName = createTextElement("strong", "No example image", "sprite-example-name");
+  const exampleOpacityInput = createExampleRangeInput("spriteExampleOpacity", "0", "1", "0.01");
+  const exampleOffsetXInput = createExampleNumberInput("spriteExampleOffsetX", "-2048", "2048", "1");
+  const exampleOffsetYInput = createExampleNumberInput("spriteExampleOffsetY", "-2048", "2048", "1");
+  const exampleScaleInput = createExampleNumberInput("spriteExampleScale", "0.05", "16", "0.05");
+  const deleteExampleButton = createSpriteButton(Trash2, "Remove example image", "sprite-icon-button danger");
   const colorInput = createSpriteInput("color");
   colorInput.className = "sprite-color-picker-input";
   colorInput.tabIndex = -1;
@@ -197,7 +213,8 @@ function createSpriteMount(): {
   const tabBar = createElement("div", "sprite-inspector-tabs");
   const primitivesTab = createSpriteTabButton("Primitives", "primitives");
   const propertiesTab = createSpriteTabButton("Properties", "properties");
-  tabBar.append(primitivesTab, propertiesTab);
+  const exampleTab = createSpriteTabButton("Example", "example");
+  tabBar.append(primitivesTab, propertiesTab, exampleTab);
 
   const primitiveActionsSection = createElement("section", "sprite-inspector-section");
   const primitiveActionsRow = createElement("div", "sprite-action-row sprite-primitive-actions-row");
@@ -218,7 +235,25 @@ function createSpriteMount(): {
     `sprite-inspector-tab-panel${activeSpriteInspectorTab === "properties" ? " is-active" : ""}`,
   );
   propertiesPanel.append(spriteFields);
-  inspectorPanel.append(tabBar, primitivesPanel, propertiesPanel);
+
+  const examplePanel = createElement(
+    "div",
+    `sprite-inspector-tab-panel${activeSpriteInspectorTab === "example" ? " is-active" : ""}`,
+  );
+  const exampleSection = createElement("section", "sprite-inspector-section sprite-example-section");
+  const exampleActions = createElement("div", "sprite-example-actions");
+  exampleActions.append(exampleImageInput, deleteExampleButton);
+  exampleSection.append(
+    createTextElement("h2", "Example"),
+    exampleImageName,
+    exampleActions,
+    createField("Opacity", exampleOpacityInput),
+    createField("Offset X", exampleOffsetXInput),
+    createField("Offset Y", exampleOffsetYInput),
+    createField("Scale", exampleScaleInput),
+  );
+  examplePanel.append(exampleSection);
+  inspectorPanel.append(tabBar, primitivesPanel, propertiesPanel, examplePanel);
 
   const statusElement = createTextElement("strong", "sprite - 256x256 - 0 primitives");
   previewStatusArea.append(createTextElement("span", "Sprite"), statusElement);
@@ -234,6 +269,13 @@ function createSpriteMount(): {
     spriteIdInput,
     canvasWidthInput,
     canvasHeightInput,
+    exampleImageInput,
+    exampleImageName,
+    exampleOpacityInput,
+    exampleOffsetXInput,
+    exampleOffsetYInput,
+    exampleScaleInput,
+    deleteExampleButton,
     foregroundColorButton,
     backgroundColorButton,
     colorInput,
@@ -345,7 +387,27 @@ function createCanvasSizeInput(field: string): HTMLInputElement {
   return input;
 }
 
-function createSpriteTabButton(label: string, tab: "primitives" | "properties"): HTMLButtonElement {
+function createExampleNumberInput(field: string, min: string, max: string, step: string): HTMLInputElement {
+  const input = createSpriteInput("number");
+  input.dataset.field = field;
+  input.min = min;
+  input.max = max;
+  input.step = step;
+
+  return input;
+}
+
+function createExampleRangeInput(field: string, min: string, max: string, step: string): HTMLInputElement {
+  const input = createSpriteInput("range");
+  input.dataset.field = field;
+  input.min = min;
+  input.max = max;
+  input.step = step;
+
+  return input;
+}
+
+function createSpriteTabButton(label: string, tab: SpriteInspectorTab): HTMLButtonElement {
   const button = createSpriteButton(
     label,
     `Show ${label.toLowerCase()}`,
@@ -359,7 +421,7 @@ function createSpriteTabButton(label: string, tab: "primitives" | "properties"):
     document.querySelectorAll<HTMLElement>(".sprite-inspector-tab-panel").forEach((panel, index) => {
       panel.classList.toggle(
         "is-active",
-        (tab === "primitives" && index === 0) || (tab === "properties" && index === 1),
+        (tab === "primitives" && index === 0) || (tab === "properties" && index === 1) || (tab === "example" && index === 2),
       );
     });
   });

@@ -41,6 +41,13 @@ type SpriteEditorControls = {
   spriteIdInput: HTMLInputElement;
   canvasWidthInput: HTMLInputElement;
   canvasHeightInput: HTMLInputElement;
+  exampleImageInput: HTMLInputElement;
+  exampleImageName: HTMLElement;
+  exampleOpacityInput: HTMLInputElement;
+  exampleOffsetXInput: HTMLInputElement;
+  exampleOffsetYInput: HTMLInputElement;
+  exampleScaleInput: HTMLInputElement;
+  deleteExampleButton: HTMLButtonElement;
   foregroundColorButton: HTMLButtonElement;
   backgroundColorButton: HTMLButtonElement;
   colorInput: HTMLInputElement;
@@ -175,6 +182,28 @@ export class SpriteEditorController {
 
     bindCommitInput(mount.canvasWidthInput, () => this.resizeCanvas(Number(mount.canvasWidthInput.value), this.state.spriteHeight));
     bindCommitInput(mount.canvasHeightInput, () => this.resizeCanvas(this.state.spriteWidth, Number(mount.canvasHeightInput.value)));
+    mount.exampleImageInput.addEventListener("change", () => this.loadExampleImage(mount.exampleImageInput.files?.[0] ?? null));
+    mount.exampleOpacityInput.addEventListener("input", () =>
+      this.updateExampleImage({
+        opacity: clampNumber(Number(mount.exampleOpacityInput.value), 0, 1),
+      }),
+    );
+    bindCommitInput(mount.exampleOffsetXInput, () =>
+      this.updateExampleImage({
+        offsetX: Number(mount.exampleOffsetXInput.value),
+      }),
+    );
+    bindCommitInput(mount.exampleOffsetYInput, () =>
+      this.updateExampleImage({
+        offsetY: Number(mount.exampleOffsetYInput.value),
+      }),
+    );
+    bindCommitInput(mount.exampleScaleInput, () =>
+      this.updateExampleImage({
+        scale: clampNumber(Number(mount.exampleScaleInput.value), 0.05, 16),
+      }),
+    );
+    mount.deleteExampleButton.addEventListener("click", () => this.removeExampleImage());
 
     mount.foregroundColorButton.addEventListener("click", () => this.selectColorSlot("foreground"));
     mount.backgroundColorButton.addEventListener("click", () => this.selectColorSlot("background"));
@@ -870,6 +899,10 @@ export class SpriteEditorController {
     this.mount.spriteIdInput.value = this.state.spriteId;
     this.mount.canvasWidthInput.value = String(this.state.spriteWidth);
     this.mount.canvasHeightInput.value = String(this.state.spriteHeight);
+    this.mount.exampleOpacityInput.value = formatControlNumber(this.state.exampleImage.opacity);
+    this.mount.exampleOffsetXInput.value = formatControlNumber(this.state.exampleImage.offsetX);
+    this.mount.exampleOffsetYInput.value = formatControlNumber(this.state.exampleImage.offsetY);
+    this.mount.exampleScaleInput.value = formatControlNumber(this.state.exampleImage.scale);
     this.mount.colorInput.value = `#${this.state.color.slice(0, 6)}`;
     this.mount.colorHexInput.value = this.state.color;
     this.mount.colorHexInput.classList.remove("is-invalid");
@@ -924,6 +957,7 @@ export class SpriteEditorController {
     this.mount.pastePrimitiveButton.disabled = this.nodeClipboard.length === 0;
     this.mount.undoButton.disabled = this.state.undoStack.length === 0;
     this.mount.redoButton.disabled = this.state.redoStack.length === 0;
+    this.syncExampleControls();
     if (selectedEntries.length === 0) {
       this.mount.selectionSummary.textContent = "Selected: none";
     } else if (selectedEntries.length === 1 && selectedGroupCount === 1) {
@@ -933,6 +967,86 @@ export class SpriteEditorController {
     } else {
       this.mount.selectionSummary.textContent = `Selected: ${selectedEntries.length} nodes`;
     }
+  }
+
+  private loadExampleImage(file: File | null): void {
+    if (!file) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      if (typeof reader.result !== "string") {
+        return;
+      }
+
+      const image = new Image();
+      image.addEventListener("load", () => {
+        const fitScale = Math.min(this.state.spriteWidth / image.naturalWidth, this.state.spriteHeight / image.naturalHeight, 1);
+        this.state.exampleImage = {
+          image,
+          name: file.name,
+          opacity: 0.5,
+          offsetX: Math.round((this.state.spriteWidth - image.naturalWidth * fitScale) / 2),
+          offsetY: Math.round((this.state.spriteHeight - image.naturalHeight * fitScale) / 2),
+          scale: roundToStep(fitScale, 0.01),
+        };
+
+        this.syncInputs();
+        this.syncExampleControls();
+        this.canvasView?.render();
+      });
+      image.src = reader.result;
+    });
+    reader.readAsDataURL(file);
+  }
+
+  private updateExampleImage(patch: Partial<AppState["exampleImage"]>): void {
+    if (!this.state.exampleImage.image) {
+      this.syncInputs();
+      return;
+    }
+
+    this.state.exampleImage = {
+      ...this.state.exampleImage,
+      ...patch,
+    };
+
+    this.syncInputs();
+    this.canvasView?.render();
+  }
+
+  private removeExampleImage(): void {
+    this.state.exampleImage = {
+      image: null,
+      name: "",
+      opacity: 0.5,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 1,
+    };
+
+    if (this.mount) {
+      this.mount.exampleImageInput.value = "";
+    }
+
+    this.syncInputs();
+    this.syncExampleControls();
+    this.canvasView?.render();
+  }
+
+  private syncExampleControls(): void {
+    if (!this.mount) {
+      return;
+    }
+
+    const hasExampleImage = this.state.exampleImage.image !== null;
+    this.mount.exampleImageName.textContent = hasExampleImage ? this.state.exampleImage.name : "No example image";
+    this.mount.exampleOpacityInput.disabled = !hasExampleImage;
+    this.mount.exampleOffsetXInput.disabled = !hasExampleImage;
+    this.mount.exampleOffsetYInput.disabled = !hasExampleImage;
+    this.mount.exampleScaleInput.disabled = !hasExampleImage;
+    this.mount.deleteExampleButton.disabled = !hasExampleImage;
   }
 
   private syncStatus(): void {
@@ -1306,6 +1420,22 @@ function toPositiveInteger(value: number, fallback: number): number {
   }
 
   return Math.max(1, Math.round(value));
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+
+  return Math.min(max, Math.max(min, value));
+}
+
+function roundToStep(value: number, step: number): number {
+  return Math.round(value / step) * step;
+}
+
+function formatControlNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 }
 
 function matchesHotkey(event: KeyboardEvent, shortcut: string): boolean {

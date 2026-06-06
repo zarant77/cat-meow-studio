@@ -328,6 +328,7 @@ export class CanvasView {
     this.drawSelectionBox();
     this.drawSelection();
     this.drawCropOverlay();
+    this.drawExampleImage();
     this.updateCursor();
     this.callbacks.onRender();
   }
@@ -1230,6 +1231,20 @@ export class CanvasView {
         this.ctx.fillRect(x, y, cellSize, cellSize);
       }
     }
+  }
+
+  private drawExampleImage(): void {
+    const { image, opacity, offsetX, offsetY, scale } = this.state.exampleImage;
+
+    if (!image) {
+      return;
+    }
+
+    this.ctx.save();
+    this.ctx.globalAlpha = opacity;
+    this.ctx.imageSmoothingEnabled = true;
+    this.ctx.drawImage(image, offsetX, offsetY, image.naturalWidth * scale, image.naturalHeight * scale);
+    this.ctx.restore();
   }
 
   private drawGrid(): void {

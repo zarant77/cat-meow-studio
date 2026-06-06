@@ -19,6 +19,7 @@ export type AppState = {
   redoStack: HistorySnapshot[];
   selectedNodeIds: string[];
   collapsedGroupIds: string[];
+  exampleImage: ExampleImageState;
 };
 
 export type HistorySnapshot = {
@@ -29,6 +30,15 @@ export type HistorySnapshot = {
   pivotY: number;
   nodes: SceneNode[];
   selectedNodeIds: string[];
+};
+
+export type ExampleImageState = {
+  image: HTMLImageElement | null;
+  name: string;
+  opacity: number;
+  offsetX: number;
+  offsetY: number;
+  scale: number;
 };
 
 export function createInitialState(): AppState {
@@ -49,6 +59,14 @@ export function createInitialState(): AppState {
     redoStack: [],
     selectedNodeIds: [],
     collapsedGroupIds: [],
+    exampleImage: {
+      image: null,
+      name: "",
+      opacity: 0.5,
+      offsetX: 0,
+      offsetY: 0,
+      scale: 1,
+    },
   };
 }
 
