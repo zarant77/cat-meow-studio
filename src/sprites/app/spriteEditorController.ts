@@ -38,6 +38,7 @@ type SelectedPrimitive = {
 
 type SpriteEditorControls = {
   toolButtons: HTMLButtonElement[];
+  canvasZoomInput: HTMLInputElement;
   spriteIdInput: HTMLInputElement;
   canvasWidthInput: HTMLInputElement;
   canvasHeightInput: HTMLInputElement;
@@ -173,6 +174,12 @@ export class SpriteEditorController {
           this.selectTool(tool);
         }
       });
+    });
+
+    mount.canvasZoomInput.addEventListener("input", () => {
+      this.state.canvasZoom = clampNumber(Number(mount.canvasZoomInput.value), 1, 10);
+      this.canvasView?.setupCanvas();
+      this.canvasView?.render();
     });
 
     mount.spriteIdInput.addEventListener("input", () => {
@@ -897,6 +904,7 @@ export class SpriteEditorController {
     }
 
     this.mount.spriteIdInput.value = this.state.spriteId;
+    this.mount.canvasZoomInput.value = formatControlNumber(this.state.canvasZoom);
     this.mount.canvasWidthInput.value = String(this.state.spriteWidth);
     this.mount.canvasHeightInput.value = String(this.state.spriteHeight);
     this.mount.exampleOpacityInput.value = formatControlNumber(this.state.exampleImage.opacity);

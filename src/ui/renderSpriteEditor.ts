@@ -65,6 +65,7 @@ function createSpriteMount(): {
   inspectorPanel: HTMLElement;
   previewStatusArea: HTMLElement;
   canvas: HTMLCanvasElement;
+  canvasZoomInput: HTMLInputElement;
   primitiveList: HTMLOListElement;
   toolButtons: HTMLButtonElement[];
   spriteIdInput: HTMLInputElement;
@@ -200,9 +201,18 @@ function createSpriteMount(): {
   assetPanel.append(primitiveToolSection, editToolSection, colorSection, transformSection, historySection);
 
   const canvasWrap = createElement("div", "sprite-canvas-wrap");
+  const canvasZoomControl = createElement("label", "sprite-canvas-zoom");
+  const canvasZoomInput = createSpriteInput("range");
+  canvasZoomInput.min = "1";
+  canvasZoomInput.max = "10";
+  canvasZoomInput.step = "0.25";
+  canvasZoomInput.value = "1";
+  canvasZoomInput.title = "Canvas zoom";
+  canvasZoomInput.setAttribute("aria-label", "Canvas zoom");
+  canvasZoomControl.append(createTextElement("span", "Zoom"), canvasZoomInput);
   const canvas = createElement("canvas", "sprite-canvas");
   canvasWrap.append(canvas);
-  editorArea.append(canvasWrap);
+  editorArea.append(canvasWrap, canvasZoomControl);
 
   const groupButton = createSpriteButton(Group, "Group selected primitives", "sprite-icon-button");
   const ungroupButton = createSpriteButton(Ungroup, "Ungroup selected group", "sprite-icon-button");
@@ -264,6 +274,7 @@ function createSpriteMount(): {
     inspectorPanel,
     previewStatusArea,
     canvas,
+    canvasZoomInput,
     primitiveList,
     toolButtons,
     spriteIdInput,

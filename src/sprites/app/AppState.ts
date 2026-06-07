@@ -20,6 +20,7 @@ export type AppState = {
   selectedNodeIds: string[];
   collapsedGroupIds: string[];
   exampleImage: ExampleImageState;
+  canvasZoom: number;
 };
 
 export type HistorySnapshot = {
@@ -59,6 +60,7 @@ export function createInitialState(): AppState {
     redoStack: [],
     selectedNodeIds: [],
     collapsedGroupIds: [],
+    canvasZoom: 1,
     exampleImage: {
       image: null,
       name: "",

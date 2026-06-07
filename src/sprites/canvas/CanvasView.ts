@@ -302,11 +302,16 @@ export class CanvasView {
     const maxWidth = Math.max(128, workspace.clientWidth - 48);
     const maxHeight = Math.max(128, workspace.clientHeight - 48);
     const scale = Math.min(maxWidth / this.state.spriteWidth, maxHeight / this.state.spriteHeight);
-    const displayWidth = Math.max(128, this.state.spriteWidth * scale);
-    const displayHeight = Math.max(128, this.state.spriteHeight * scale);
+    const displayWidth = Math.max(128, this.state.spriteWidth * scale) * this.state.canvasZoom;
+    const displayHeight = Math.max(128, this.state.spriteHeight * scale) * this.state.canvasZoom;
 
-    this.canvas.width = this.state.spriteWidth;
-    this.canvas.height = this.state.spriteHeight;
+    if (this.canvas.width !== this.state.spriteWidth) {
+      this.canvas.width = this.state.spriteWidth;
+    }
+
+    if (this.canvas.height !== this.state.spriteHeight) {
+      this.canvas.height = this.state.spriteHeight;
+    }
 
     this.canvas.style.width = `${displayWidth}px`;
     this.canvas.style.height = `${displayHeight}px`;
