@@ -341,7 +341,8 @@ function renderMusicPlayhead(lengthTicks: number, currentTick: number): HTMLElem
   const playhead = createElement("div", "music-playhead");
   const tick = Math.max(0, Math.min(Math.max(1, lengthTicks), currentTick));
 
-  playhead.style.left = `${(tick / Math.max(1, lengthTicks)) * 100}%`;
+  playhead.style.left = "0";
+  playhead.style.transform = "translateX(-1px)";
   playhead.title = `Playback tick ${Math.round(tick)}`;
 
   return playhead;

@@ -109,8 +109,13 @@ if (app === null) {
 }
 
 const preview = new AudioPreview();
+const playbackStateUpdateMs = 125;
 let musicPlaybackState: MusicPlaybackState | null = null;
 let musicPlaybackAnimationFrameId: number | null = null;
+let musicPlaybackTickRef = 0;
+let lastMusicPlaybackStateUpdateMs = 0;
+let musicSeekVersion = 0;
+let musicPlayheadTargets: Array<{ element: HTMLElement; width: number }> = [];
 let musicPreviewState: MusicPreviewState = {
   samples: new Float32Array(0),
   dirty: true,
@@ -478,6 +483,7 @@ function playMusicProject(loopOnly: boolean): void {
       startedAtMs: performance.now(),
       startOffsetTick,
       tickSeconds,
+      lengthTicks: project.lengthTicks,
       loop: shouldLoop,
       loopStartTick: loop.startTick,
       loopEndTick: loop.endTick,
@@ -618,6 +624,7 @@ interface MusicPlaybackState {
   startedAtMs: number;
   startOffsetTick: number;
   tickSeconds: number;
+  lengthTicks: number;
   loop: boolean;
   loopStartTick: number;
   loopEndTick: number;
@@ -628,8 +635,11 @@ interface MusicPlaybackState {
 
 function startMusicPlayback(playbackState: MusicPlaybackState): void {
   musicPlaybackState = playbackState;
-  scheduleMusicPlaybackRenderLoop();
+  musicPlaybackTickRef = playbackState.startOffsetTick;
+  lastMusicPlaybackStateUpdateMs = 0;
   render();
+  updateMusicPlaybackDom(playbackState.startOffsetTick, playbackState.lengthTicks);
+  scheduleMusicPlaybackRenderLoop();
 }
 
 function scheduleMusicPlaybackRenderLoop(): void {
@@ -644,8 +654,7 @@ function scheduleMusicPlaybackRenderLoop(): void {
       return;
     }
 
-    const project = getCurrentMusicProject();
-    const currentTick = getCurrentMusicPlaybackTick(musicPlaybackState, project.lengthTicks);
+    const currentTick = getCurrentMusicPlaybackTick(musicPlaybackState, musicPlaybackState.lengthTicks);
 
     if (currentTick === null) {
       stopMusicPlayback();
@@ -653,8 +662,9 @@ function scheduleMusicPlaybackRenderLoop(): void {
       return;
     }
 
-    musicPlaybackState.playingNoteIds = getMusicNoteIdsAtTick(currentTick);
-    render();
+    musicPlaybackTickRef = currentTick;
+    updateMusicPlaybackDom(currentTick, musicPlaybackState.lengthTicks);
+    updatePlaybackEditorStateThrottled(currentTick);
     musicPlaybackAnimationFrameId = window.requestAnimationFrame(tick);
   };
 
@@ -668,14 +678,17 @@ function pauseMusicPlayback(): void {
     return;
   }
 
-  const project = getCurrentMusicProject();
-  const currentTick = getCurrentMusicPlaybackTick(playbackState, project.lengthTicks) ?? playbackState.startOffsetTick;
+  const currentTick = getCurrentMusicPlaybackTick(playbackState, playbackState.lengthTicks) ?? playbackState.startOffsetTick;
 
+  musicPlaybackTickRef = currentTick;
   playbackState.isPlaying = false;
+  musicSeekVersion += 1;
   playbackState.pausedTick = currentTick;
   playbackState.playingNoteIds = [];
   cancelMusicPlaybackRenderLoop();
   preview.stop();
+  setCurrentMusicPlaybackTick(currentTick);
+  updateMusicPlaybackDom(currentTick, playbackState.lengthTicks);
 
   if (activeMode === "music") {
     render();
@@ -686,8 +699,11 @@ function stopMusicPlayback(): void {
   const playbackState = musicPlaybackState;
 
   const shouldRender = playbackState !== null;
+  musicSeekVersion += 1;
+  musicPlaybackTickRef = 0;
   musicPlaybackState = null;
   cancelMusicPlaybackRenderLoop();
+  setCurrentMusicPlaybackTick(0);
 
   if (shouldRender && activeMode === "music") {
     render();
@@ -704,12 +720,16 @@ function seekMusicPlayback(targetTick: number): void {
   const loop = normalizeMusicLoop(project.loop, project.lengthTicks);
 
   preview.stop();
+  musicPlaybackTickRef = tick;
+  setCurrentMusicPlaybackTick(tick);
+  updateMusicPlaybackDom(tick, project.lengthTicks);
 
   if (!isPlaying) {
     musicPlaybackState = {
       startedAtMs: performance.now(),
       startOffsetTick: tick,
       tickSeconds,
+      lengthTicks: project.lengthTicks,
       loop: shouldLoop,
       loopStartTick: loop.startTick,
       loopEndTick: loop.endTick,
@@ -719,10 +739,17 @@ function seekMusicPlayback(targetTick: number): void {
     };
     cancelMusicPlaybackRenderLoop();
     render();
+    updateMusicPlaybackDom(tick, project.lengthTicks);
     return;
   }
 
+  const seekVersion = ++musicSeekVersion;
+  cancelMusicPlaybackRenderLoop();
   getMusicPreviewSamplesForPlay((samples) => {
+    if (seekVersion !== musicSeekVersion) {
+      return;
+    }
+
     preview.playSamples(samples, {
       loop: shouldLoop,
       loopStartSeconds: loop.startTick * tickSeconds,
@@ -733,6 +760,7 @@ function seekMusicPlayback(targetTick: number): void {
       startedAtMs: performance.now(),
       startOffsetTick: tick,
       tickSeconds,
+      lengthTicks: project.lengthTicks,
       loop: shouldLoop,
       loopStartTick: loop.startTick,
       loopEndTick: loop.endTick,
@@ -752,9 +780,73 @@ function cancelMusicPlaybackRenderLoop(): void {
   musicPlaybackAnimationFrameId = null;
 }
 
+function updatePlaybackEditorStateThrottled(currentTick: number): void {
+  const playbackState = musicPlaybackState;
+  const now = performance.now();
+
+  if (playbackState === null || now - lastMusicPlaybackStateUpdateMs < playbackStateUpdateMs) {
+    return;
+  }
+
+  lastMusicPlaybackStateUpdateMs = now;
+  setCurrentMusicPlaybackTick(currentTick);
+  const playingNoteIds = getMusicNoteIdsAtTick(currentTick);
+
+  if (areStringArraysEqual(playingNoteIds, playbackState.playingNoteIds)) {
+    return;
+  }
+
+  playbackState.playingNoteIds = playingNoteIds;
+
+  if (activeMode === "music") {
+    render();
+    updateMusicPlaybackDom(currentTick, playbackState.lengthTicks);
+  }
+}
+
+function updateMusicPlaybackDom(currentTick: number, lengthTicks: number): void {
+  if (activeMode !== "music" || !(app instanceof HTMLElement)) {
+    return;
+  }
+
+  if (musicPlayheadTargets.length === 0) {
+    refreshMusicPlayheadTargets();
+  }
+
+  const tick = clampMusicTick(currentTick, lengthTicks);
+  const ratio = lengthTicks <= 0 ? 0 : tick / Math.max(1, lengthTicks);
+
+  for (const { element, width } of musicPlayheadTargets) {
+    const x = Math.max(-1, width * ratio - 1);
+
+    element.style.transform = `translateX(${x}px)`;
+    element.title = `Playback tick ${Math.round(tick)}`;
+  }
+}
+
+function refreshMusicPlayheadTargets(): void {
+  if (activeMode !== "music" || !(app instanceof HTMLElement)) {
+    musicPlayheadTargets = [];
+    return;
+  }
+
+  musicPlayheadTargets = Array.from(app.querySelectorAll<HTMLElement>(".music-playhead")).map((element) => ({
+    element,
+    width: element.parentElement?.clientWidth ?? 0,
+  }));
+}
+
+function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}
+
 function goToCurrentMusicPosition(): void {
   const project = getCurrentMusicProject();
-  const currentTick = getRenderedMusicPlaybackTick(project.lengthTicks);
+  const currentTick = getLatestMusicPlaybackTick(project.lengthTicks);
 
   setCurrentMusicPlaybackTick(currentTick);
   selectMusicNotesAtTick(currentTick);
@@ -843,6 +935,8 @@ function render(): void {
     appActions,
   );
 
+  refreshMusicPlayheadTargets();
+  updateMusicPlaybackDom(currentPlaybackTick, musicState.project.lengthTicks);
 }
 
 function getRenderedMusicPlaybackTick(lengthTicks: number): number {
@@ -855,6 +949,18 @@ function getRenderedMusicPlaybackTick(lengthTicks: number): number {
   }
 
   return clampMusicTick(getCurrentMusicPlaybackTick(musicPlaybackState, lengthTicks) ?? lengthTicks, lengthTicks);
+}
+
+function getLatestMusicPlaybackTick(lengthTicks: number): number {
+  if (musicPlaybackState === null) {
+    return 0;
+  }
+
+  if (!musicPlaybackState.isPlaying) {
+    return clampMusicTick(musicPlaybackState.pausedTick, lengthTicks);
+  }
+
+  return clampMusicTick(musicPlaybackTickRef, lengthTicks);
 }
 
 function scrollCurrentMusicPositionIntoView(): void {
@@ -1617,6 +1723,15 @@ window.addEventListener("hashchange", () => {
     scheduleMusicPreviewRender("fast", 220);
   }
   ensureCurrentModeSnapshot();
+});
+
+window.addEventListener("resize", () => {
+  if (activeMode !== "music") {
+    return;
+  }
+
+  refreshMusicPlayheadTargets();
+  updateMusicPlaybackDom(musicPlaybackTickRef, musicPlaybackState?.lengthTicks ?? getCurrentMusicProject().lengthTicks);
 });
 
 document.addEventListener("keydown", handleKeyboardShortcut);
