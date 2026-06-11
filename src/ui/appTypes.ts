@@ -1,5 +1,5 @@
 import type { SoundCommandPatch } from "../state/editorState.js";
-import type { MusicInstrumentPatch, MusicNotePatch, MusicProjectPatch } from "../state/musicEditorState.js";
+import type { MusicInstrumentPatch, MusicNotePatch, MusicNoteSelectionOptions, MusicProjectPatch } from "../state/musicEditorState.js";
 
 export type AppMode = "music" | "sfx" | "sprites" | "animator" | "font";
 
@@ -33,7 +33,13 @@ export interface RenderActions {
 
 export interface MusicRenderActions {
   updateProject: (patch: MusicProjectPatch) => void;
-  selectNote: (noteId: string) => void;
+  selectNote: (noteId: string, options?: MusicNoteSelectionOptions) => void;
+  selectAllNotes: () => void;
+  clearNoteSelection: () => void;
+  updateSelectionRange: (startTick: number, endTick: number) => void;
+  selectNotesInRange: () => void;
+  deleteNotesInRange: () => void;
+  trimEmptyIntro: () => void;
   addNote: () => void;
   deleteNote: () => void;
   updateNote: (noteId: string, patch: MusicNotePatch) => void;
@@ -41,6 +47,7 @@ export interface MusicRenderActions {
   addInstrument: () => void;
   deleteInstrument: () => void;
   updateInstrument: (patch: MusicInstrumentPatch) => void;
+  seekPlayback: (tick: number) => void;
 }
 
 export interface AppActions {

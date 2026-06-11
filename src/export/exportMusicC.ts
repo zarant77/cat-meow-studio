@@ -1,5 +1,6 @@
 import type { MusicInstrument, MusicNote, MusicProject, MusicWave } from "../model/musicProject.js";
-import { normalizeMusicLoop } from "../model/musicProject.js";
+import { normalizeMusicLoop, normalizeMusicLoudness } from "../model/musicProject.js";
+import { getEffectiveNoteVolume, getTrackVolumeStats, type MusicVolumeStats } from "../model/musicLoudness.js";
 import { isValidSoundId, toMusicSymbolName } from "../utils/symbolName.js";
 
 export interface MusicCOptions {
@@ -47,6 +48,9 @@ export function createMusicDefinitionCBlock(
   const definitionSymbol = toMusicSymbolName(project.id);
   const idConstant = getMusicIdConstant(project.id);
   const loop = normalizeMusicLoop(project.loop, project.lengthTicks);
+  const volumeStats = getTrackVolumeStats(project);
+
+  logMusicExportVolumeStats(project, volumeStats);
 
   return {
     idConstant,
@@ -57,7 +61,7 @@ export function createMusicDefinitionCBlock(
       "};",
       "",
       `static const MusicNote ${noteSymbol}[] = {`,
-      ...project.notes.map(formatNote),
+      ...project.notes.map((note) => formatNote(note, project, volumeStats)),
       "};",
       "",
       `const MusicDefinition ${definitionSymbol} = {`,
@@ -91,12 +95,22 @@ function formatInstrument(instrument: MusicInstrument): string {
   )}, ${clampInteger(instrument.decayMs, 0, 65535)}, 255, 0 },`;
 }
 
-function formatNote(note: MusicNote): string {
+function formatNote(note: MusicNote, project: MusicProject, volumeStats: MusicVolumeStats): string {
   return `    { ${clampInteger(note.instrument, 0, 255)}, ${clampInteger(note.note, 0, 127)}, ${clampInteger(
     note.startTick,
     0,
     65535,
-  )}, ${clampInteger(note.durationTicks, 1, 65535)}, ${volumeToByte(note.volume)} },`;
+  )}, ${clampInteger(note.durationTicks, 1, 65535)}, ${volumeToByte(getEffectiveNoteVolume(note, project, volumeStats))} },`;
+}
+
+function logMusicExportVolumeStats(project: MusicProject, stats: MusicVolumeStats): void {
+  const loudness = normalizeMusicLoudness(project);
+
+  console.info(
+    `${project.id}: notes=${project.notes.length}, avgVol=${stats.averageBefore.toFixed(1)}, normalize=${String(
+      loudness.normalizeVolume,
+    )}, gain=${stats.normalizationGain.toFixed(2)}, volume=${loudness.volume.toFixed(2)}, effectiveAvg=${stats.averageAfter.toFixed(1)}`,
+  );
 }
 
 function getWaveConstant(wave: MusicWave): string {

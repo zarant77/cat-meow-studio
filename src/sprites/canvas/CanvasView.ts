@@ -11,9 +11,17 @@ import {
 } from "../document/CatPaintDocument.js";
 import type { SceneNode } from "../document/CatPaintDocument.js";
 import type { AppElements } from "../ui/elements.js";
-import type { CreateToolKind, Point, Primitive, ToolKind } from "../primitives/Primitive.js";
+import type { Point, Primitive, ShapePrimitive, ShapePrimitiveKind, ToolKind } from "../primitives/Primitive.js";
 import { createPrimitiveFromDrag } from "./primitiveFactory.js";
 import { drawPrimitive } from "../primitives/drawPrimitive.js";
+import {
+  getPathBounds,
+  isPointNearPath,
+  pathPointToPoint,
+  rotatePathFromStart,
+  scalePathFromStart,
+  translatePath,
+} from "../primitives/pathPrimitive.js";
 import { getCanvasContext } from "../ui/dom.js";
 import { getSpritePoint } from "./pointer.js";
 
@@ -26,7 +34,9 @@ export type CanvasViewCallbacks = {
 type InteractionMode =
   | "idle"
   | "creatingPrimitive"
+  | "creatingPath"
   | "draggingPrimitives"
+  | "draggingPathPoint"
   | "draggingSelection"
   | "cropping"
   | "rotatingSelection"
@@ -91,8 +101,17 @@ export class CanvasView {
   private readonly callbacks: CanvasViewCallbacks;
   private dragStart: Point | null = null;
   private draftPrimitive: Primitive | null = null;
+  private draftPathPoints: Point[] = [];
   private moveStart: Point | null = null;
-  private movePrimitiveStarts: Array<{ nodeId: string; point: Point }> = [];
+  private movePrimitiveStarts: Array<{ nodeId: string; primitive: Primitive }> = [];
+  private pathPointDrag:
+    | {
+        nodeId: string;
+        pointIndex: number;
+        startPoint: Point;
+        primitive: Primitive & { kind: "path" };
+      }
+    | null = null;
   private selectionStart: Point | null = null;
   private selectionCurrent: Point | null = null;
   private isAddingToSelection = false;
@@ -152,9 +171,23 @@ export class CanvasView {
       this.canvas.setPointerCapture(event.pointerId);
       const hitNodeIds = this.hitTestAllPrimitives(point);
 
+      const pathPointHandle = this.hitTestSelectedPathPoint(point);
+
+      if (pathPointHandle) {
+        this.beginPathPointDrag(pathPointHandle);
+        this.canvas.setPointerCapture(event.pointerId);
+        return;
+      }
+
       if (this.state.activeTool === "rotate" || this.state.activeTool === "transform" || this.state.activeTool === "scale") {
         this.beginTransform(point, hitNodeIds);
         this.render();
+        return;
+      }
+
+      if (this.state.activeTool === "path") {
+        this.addPathPoint(point, event.detail >= 2);
+        this.canvas.setPointerCapture(event.pointerId);
         return;
       }
 
@@ -179,6 +212,11 @@ export class CanvasView {
         return;
       }
 
+      if (this.interactionMode === "draggingPathPoint") {
+        this.movePathPoint(this.hoverPoint);
+        return;
+      }
+
       if (this.interactionMode === "draggingSelection") {
         this.selectionCurrent = this.hoverPoint;
         this.render();
@@ -198,6 +236,11 @@ export class CanvasView {
 
       if (this.interactionMode === "scalingSelection") {
         this.scaleSelection(this.hoverPoint);
+        return;
+      }
+
+      if (this.interactionMode === "creatingPath") {
+        this.render();
         return;
       }
 
@@ -227,6 +270,17 @@ export class CanvasView {
 
       if (this.interactionMode === "draggingPrimitives") {
         this.endSelectionMove();
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode === "draggingPathPoint") {
+        this.endPathPointDrag();
+        this.render();
+        return;
+      }
+
+      if (this.interactionMode === "creatingPath") {
         this.render();
         return;
       }
@@ -330,6 +384,8 @@ export class CanvasView {
       drawPrimitive(this.ctx, this.draftPrimitive);
     }
 
+    this.drawDraftPath();
+
     this.drawSelectionBox();
     this.drawSelection();
     this.drawCropOverlay();
@@ -352,11 +408,7 @@ export class CanvasView {
         const primitive = getEditableCommand(this.state, start.nodeId);
 
         if (primitive) {
-          primitive.x = start.primitive.x;
-          primitive.y = start.primitive.y;
-          primitive.w = start.primitive.w;
-          primitive.h = start.primitive.h;
-          primitive.rotation = start.primitive.rotation;
+          restorePrimitiveFromStart(primitive, start.primitive);
         }
       }
 
@@ -365,9 +417,69 @@ export class CanvasView {
       }
     }
 
+    if (this.pathPointDrag) {
+      const primitive = getEditableCommand(this.state, this.pathPointDrag.nodeId);
+
+      if (primitive) {
+        restorePrimitiveFromStart(primitive, this.pathPointDrag.primitive);
+      }
+
+      this.state.undoStack.pop();
+    }
+
     this.resetInteraction();
     this.render();
     return true;
+  }
+
+  finishActivePath(): boolean {
+    if (this.interactionMode !== "creatingPath") {
+      return false;
+    }
+
+    if (this.draftPathPoints.length < 2) {
+      this.resetInteraction();
+      this.render();
+      return true;
+    }
+
+    const primitive: Primitive = {
+      kind: "path",
+      points: this.draftPathPoints.map((point) => [Math.round(point.x), Math.round(point.y)]),
+      thickness: 6,
+      cap: "round",
+      join: "round",
+      smoothing: "none",
+      segments: 8,
+      color: this.state.color,
+    };
+
+    this.state.undoStack.push(createHistorySnapshot(this.state));
+    this.state.nodes.push(createPrimitiveNode(primitive, getEditablePrimitiveNodeEntries(this.state.nodes).length));
+    this.state.selectedNodeIds = [this.state.nodes[this.state.nodes.length - 1]?.id ?? ""].filter(Boolean);
+    this.state.redoStack = [];
+    this.resetInteraction();
+    this.render();
+    return true;
+  }
+
+  removeLastPathPoint(): boolean {
+    if (this.interactionMode !== "creatingPath") {
+      return false;
+    }
+
+    this.draftPathPoints.pop();
+
+    if (this.draftPathPoints.length === 0) {
+      this.resetInteraction();
+    }
+
+    this.render();
+    return true;
+  }
+
+  isCreatingPath(): boolean {
+    return this.interactionMode === "creatingPath";
   }
 
   hitTestAllPrimitives(point: Point): string[] {
@@ -453,7 +565,7 @@ export class CanvasView {
       scaleHandle: scaleHandle?.kind ?? null,
       primitives: selectedStarts.map((start) => ({
         nodeId: start.nodeId,
-        primitive: { ...start.primitive },
+        primitive: clonePrimitive(start.primitive),
       })),
     };
 
@@ -471,6 +583,73 @@ export class CanvasView {
     this.draftPrimitive = null;
     this.state.selectedNodeIds = [];
     this.updateCursor();
+  }
+
+  private addPathPoint(point: Point, shouldFinish: boolean): void {
+    if (this.interactionMode !== "creatingPath") {
+      this.resetInteraction();
+      this.interactionMode = "creatingPath";
+      this.activeInteractionCursor = "crosshair";
+      this.draftPathPoints = [];
+      this.state.selectedNodeIds = [];
+    }
+
+    this.draftPathPoints.push({ x: Math.round(point.x), y: Math.round(point.y) });
+
+    if (shouldFinish) {
+      this.finishActivePath();
+      return;
+    }
+
+    this.render();
+  }
+
+  private beginPathPointDrag(input: { nodeId: string; pointIndex: number; primitive: Primitive & { kind: "path" } }): void {
+    const point = input.primitive.points[input.pointIndex];
+
+    if (!point) {
+      return;
+    }
+
+    this.resetInteraction();
+    this.pathPointDrag = {
+      ...input,
+      startPoint: pathPointToPoint(point),
+      primitive: clonePrimitive(input.primitive) as Primitive & { kind: "path" },
+    };
+    this.interactionMode = "draggingPathPoint";
+    this.activeInteractionCursor = "grabbing";
+    this.state.undoStack.push(createHistorySnapshot(this.state));
+    this.state.redoStack = [];
+    this.updateCursor();
+  }
+
+  private movePathPoint(point: Point): void {
+    if (!this.pathPointDrag) {
+      return;
+    }
+
+    const primitive = getEditableCommand(this.state, this.pathPointDrag.nodeId);
+
+    if (!primitive || primitive.kind !== "path") {
+      return;
+    }
+
+    const nextPoint = primitive.points[this.pathPointDrag.pointIndex];
+
+    if (!nextPoint) {
+      return;
+    }
+
+    nextPoint[0] = Math.round(point.x);
+    nextPoint[1] = Math.round(point.y);
+    this.render();
+  }
+
+  private endPathPointDrag(): void {
+    this.pathPointDrag = null;
+    this.interactionMode = "idle";
+    this.activeInteractionCursor = null;
   }
 
   private beginBoxSelection(point: Point, isAddingToSelection: boolean): void {
@@ -642,7 +821,7 @@ export class CanvasView {
     this.draftPrimitive = null;
     this.moveStart = point;
     this.movePrimitiveStarts = getSelectedEditablePrimitiveStarts(this.state, selectedNodeIds).map(({ nodeId, primitive }) => {
-      return { nodeId, point: { x: primitive.x, y: primitive.y } };
+      return { nodeId, primitive: clonePrimitive(primitive) };
     });
     this.isMovingPrimitive = false;
     this.interactionMode = "draggingPrimitives";
@@ -684,8 +863,8 @@ export class CanvasView {
         continue;
       }
 
-      primitive.x = start.point.x + dx;
-      primitive.y = start.point.y + dy;
+      restorePrimitiveFromStart(primitive, start.primitive);
+      translatePrimitive(primitive, dx, dy);
     }
 
     this.render();
@@ -711,11 +890,7 @@ export class CanvasView {
         continue;
       }
 
-      const offsetX = start.primitive.x - this.transformStart.pivot.x;
-      const offsetY = start.primitive.y - this.transformStart.pivot.y;
-      primitive.x = Math.round(this.transformStart.pivot.x + offsetX * cos - offsetY * sin);
-      primitive.y = Math.round(this.transformStart.pivot.y + offsetX * sin + offsetY * cos);
-      primitive.rotation = start.primitive.rotation + radiansToDegrees(delta);
+      rotatePrimitiveFromStart(primitive, start.primitive, this.transformStart.pivot, delta, cos, sin);
     }
 
     this.render();
@@ -746,6 +921,10 @@ export class CanvasView {
       const primitive = getEditableCommand(this.state, start.nodeId);
 
       if (!primitive) {
+        continue;
+      }
+
+      if (primitive.kind === "path" || start.primitive.kind === "path") {
         continue;
       }
 
@@ -860,8 +1039,10 @@ export class CanvasView {
   private resetInteraction(): void {
     this.dragStart = null;
     this.draftPrimitive = null;
+    this.draftPathPoints = [];
     this.moveStart = null;
     this.movePrimitiveStarts = [];
+    this.pathPointDrag = null;
     this.selectionStart = null;
     this.selectionCurrent = null;
     this.isAddingToSelection = false;
@@ -967,6 +1148,30 @@ export class CanvasView {
     return null;
   }
 
+  private hitTestSelectedPathPoint(point: Point): { nodeId: string; pointIndex: number; primitive: Primitive & { kind: "path" } } | null {
+    const radius = getSpriteHandleRadius(this.canvas);
+
+    for (const start of getSelectedEditablePrimitiveStarts(this.state)) {
+      if (start.primitive.kind !== "path") {
+        continue;
+      }
+
+      for (let pointIndex = start.primitive.points.length - 1; pointIndex >= 0; pointIndex -= 1) {
+        const pathPoint = start.primitive.points[pointIndex];
+
+        if (pathPoint && getDistance(point, pathPointToPoint(pathPoint)) <= radius) {
+          return {
+            nodeId: start.nodeId,
+            pointIndex,
+            primitive: start.primitive,
+          };
+        }
+      }
+    }
+
+    return null;
+  }
+
   private hitTestFreeScaleHandle(point: Point): ScaleHandleHit | null {
     const selectedPrimitives = getSelectedEditablePrimitiveStarts(this.state);
 
@@ -975,6 +1180,11 @@ export class CanvasView {
     }
 
     const primitive = selectedPrimitives[0].primitive;
+
+    if (primitive.kind === "path") {
+      return null;
+    }
+
     const radius = getSpriteHandleRadius(this.canvas);
     const localPoint = toPrimitiveLocalPoint(point, primitive);
     const halfW = primitive.w / 2;
@@ -1085,6 +1295,35 @@ export class CanvasView {
     }
   }
 
+  private drawDraftPath(): void {
+    if (this.draftPathPoints.length === 0) {
+      return;
+    }
+
+    const points = this.hoverPoint && this.interactionMode === "creatingPath" ? [...this.draftPathPoints, this.hoverPoint] : this.draftPathPoints;
+
+    this.ctx.save();
+    this.ctx.strokeStyle = `#${this.state.color.slice(0, 6)}`;
+    this.ctx.lineWidth = 6;
+    this.ctx.lineCap = "round";
+    this.ctx.lineJoin = "round";
+    this.ctx.globalAlpha = 0.72;
+    this.ctx.beginPath();
+    this.ctx.moveTo(points[0].x, points[0].y);
+
+    for (const point of points.slice(1)) {
+      this.ctx.lineTo(point.x, point.y);
+    }
+
+    this.ctx.stroke();
+
+    for (const point of this.draftPathPoints) {
+      this.drawPathPointHandle(point, "#2563eb");
+    }
+
+    this.ctx.restore();
+  }
+
   private drawSelectionBox(): void {
     if (this.interactionMode !== "draggingSelection" || !this.selectionStart || !this.selectionCurrent) {
       return;
@@ -1125,6 +1364,11 @@ export class CanvasView {
   }
 
   private drawPrimitiveSelection(primitive: Primitive): void {
+    if (primitive.kind === "path") {
+      this.drawPathSelection(primitive);
+      return;
+    }
+
     const inset = 1 / this.getCanvasScale();
     const height = getPrimitiveSelectionHeight(primitive);
 
@@ -1144,7 +1388,44 @@ export class CanvasView {
     this.ctx.restore();
   }
 
-  private drawFreeScaleHandles(primitive: Primitive): void {
+  private drawPathSelection(primitive: Primitive & { kind: "path" }): void {
+    const bounds = getPrimitiveBounds(primitive);
+    const inset = 2 / this.getCanvasScale();
+
+    this.ctx.save();
+    this.ctx.strokeStyle = "#2563eb";
+    this.ctx.lineWidth = 1.5 / this.getCanvasScale();
+    this.ctx.setLineDash([4 / this.getCanvasScale(), 3 / this.getCanvasScale()]);
+    this.ctx.strokeRect(
+      bounds.minX - inset,
+      bounds.minY - inset,
+      bounds.maxX - bounds.minX + inset * 2,
+      bounds.maxY - bounds.minY + inset * 2,
+    );
+    this.ctx.setLineDash([]);
+
+    for (const point of primitive.points) {
+      this.drawPathPointHandle(pathPointToPoint(point), "#2563eb");
+    }
+
+    this.ctx.restore();
+  }
+
+  private drawPathPointHandle(point: Point, color: string): void {
+    const radius = getSpriteHandleRadius(this.canvas);
+
+    this.ctx.save();
+    this.ctx.fillStyle = color;
+    this.ctx.strokeStyle = "#ffffff";
+    this.ctx.lineWidth = 1 / this.getCanvasScale();
+    this.ctx.beginPath();
+    this.ctx.arc(point.x, point.y, radius / 2, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.stroke();
+    this.ctx.restore();
+  }
+
+  private drawFreeScaleHandles(primitive: ShapePrimitive): void {
     const radius = getSpriteHandleRadius(this.canvas);
     const halfW = primitive.w / 2;
     const halfH = getPrimitiveSelectionHeight(primitive) / 2;
@@ -1287,6 +1568,10 @@ export class CanvasView {
 }
 
 function isDrawablePrimitive(primitive: Primitive): boolean {
+  if (primitive.kind === "path") {
+    return primitive.points.length >= 2 && primitive.thickness > 0;
+  }
+
   return primitive.w > 0 && primitive.h > 0;
 }
 
@@ -1397,6 +1682,10 @@ function getSelectedEditablePrimitiveStarts(
 }
 
 function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
+  if (primitive.kind === "path") {
+    return isPointNearPath(point, primitive);
+  }
+
   const localPoint = toPrimitiveLocalPoint(point, primitive);
 
   if (primitive.kind === "circle") {
@@ -1419,6 +1708,10 @@ function isPointInPrimitive(point: Point, primitive: Primitive): boolean {
 }
 
 function toPrimitiveLocalPoint(point: Point, primitive: Primitive): Point {
+  if (primitive.kind === "path") {
+    return point;
+  }
+
   const dx = point.x - primitive.x;
   const dy = point.y - primitive.y;
   const radians = degreesToRadians(-primitive.rotation);
@@ -1453,6 +1746,10 @@ function getPrimitivesBounds(primitives: Primitive[]): RectBounds | null {
 }
 
 function getPrimitiveBounds(primitive: Primitive): RectBounds {
+  if (primitive.kind === "path") {
+    return getPathBounds(primitive) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+  }
+
   const height = getPrimitiveSelectionHeight(primitive);
 
   return {
@@ -1464,10 +1761,16 @@ function getPrimitiveBounds(primitive: Primitive): RectBounds {
 }
 
 function getPrimitiveSelectionHeight(primitive: Primitive): number {
+  if (primitive.kind === "path") {
+    const bounds = getPathBounds(primitive);
+
+    return bounds ? bounds.maxY - bounds.minY : primitive.thickness;
+  }
+
   return primitive.kind === "circle" && primitive.h <= 0 ? primitive.w : primitive.h;
 }
 
-function isCreateToolKind(tool: ToolKind): tool is CreateToolKind {
+function isCreateToolKind(tool: ToolKind): tool is ShapePrimitiveKind {
   return tool === "rect" || tool === "circle" || tool === "triangle";
 }
 
@@ -1515,6 +1818,15 @@ function handleAffectsY(handle: ScaleHandleKind): boolean {
 }
 
 function scalePrimitiveFromStart(primitive: Primitive, start: Primitive, pivot: Point, factor: number): void {
+  if (primitive.kind === "path" && start.kind === "path") {
+    scalePathFromStart(primitive, start, pivot, factor);
+    return;
+  }
+
+  if (primitive.kind === "path" || start.kind === "path") {
+    return;
+  }
+
   primitive.x = toFiniteInteger(pivot.x + (start.x - pivot.x) * factor, start.x);
   primitive.y = toFiniteInteger(pivot.y + (start.y - pivot.y) * factor, start.y);
   primitive.w = toPositiveInteger(start.w * factor, start.w);
@@ -1522,7 +1834,80 @@ function scalePrimitiveFromStart(primitive: Primitive, start: Primitive, pivot: 
   primitive.rotation = start.rotation;
 }
 
+function clonePrimitive(primitive: Primitive): Primitive {
+  if (primitive.kind === "path") {
+    return {
+      ...primitive,
+      points: primitive.points.map((point) => [...point]),
+    };
+  }
+
+  return { ...primitive };
+}
+
+function restorePrimitiveFromStart(primitive: Primitive, start: Primitive): void {
+  if (primitive.kind === "path" && start.kind === "path") {
+    primitive.points = start.points.map((point) => [...point]);
+    primitive.thickness = start.thickness;
+    primitive.cap = start.cap;
+    primitive.join = start.join;
+    primitive.smoothing = start.smoothing;
+    primitive.segments = start.segments;
+    primitive.color = start.color;
+    return;
+  }
+
+  if (primitive.kind === "path" || start.kind === "path") {
+    return;
+  }
+
+  primitive.x = start.x;
+  primitive.y = start.y;
+  primitive.w = start.w;
+  primitive.h = start.h;
+  primitive.rotation = start.rotation;
+  primitive.color = start.color;
+}
+
+function translatePrimitive(primitive: Primitive, dx: number, dy: number): void {
+  if (primitive.kind === "path") {
+    translatePath(primitive, dx, dy);
+    return;
+  }
+
+  primitive.x = primitive.x + dx;
+  primitive.y = primitive.y + dy;
+}
+
+function rotatePrimitiveFromStart(
+  primitive: Primitive,
+  start: Primitive,
+  pivot: Point,
+  delta: number,
+  cos: number,
+  sin: number,
+): void {
+  if (primitive.kind === "path" && start.kind === "path") {
+    rotatePathFromStart(primitive, start, pivot, delta);
+    return;
+  }
+
+  if (primitive.kind === "path" || start.kind === "path") {
+    return;
+  }
+
+  const offsetX = start.x - pivot.x;
+  const offsetY = start.y - pivot.y;
+  primitive.x = Math.round(pivot.x + offsetX * cos - offsetY * sin);
+  primitive.y = Math.round(pivot.y + offsetX * sin + offsetY * cos);
+  primitive.rotation = start.rotation + radiansToDegrees(delta);
+}
+
 function getScaledPrimitiveHeight(primitive: Primitive, factor: number): number {
+  if (primitive.kind === "path") {
+    return Math.max(1, Math.round(primitive.thickness * factor));
+  }
+
   if (primitive.kind === "circle" && primitive.h === 0) {
     return 0;
   }

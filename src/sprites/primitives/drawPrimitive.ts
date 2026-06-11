@@ -1,6 +1,12 @@
 import type { Primitive } from "./Primitive.js";
+import { getPathRenderablePoints, normalizePathPrimitive } from "./pathPrimitive.js";
 
 export function drawPrimitive(ctx: CanvasRenderingContext2D, primitive: Primitive): void {
+  if (primitive.kind === "path") {
+    drawPathPrimitive(ctx, primitive);
+    return;
+  }
+
   ctx.save();
 
   ctx.translate(primitive.x, primitive.y);
@@ -29,6 +35,30 @@ export function drawPrimitive(ctx: CanvasRenderingContext2D, primitive: Primitiv
     ctx.fill();
   }
 
+  ctx.restore();
+}
+
+function drawPathPrimitive(ctx: CanvasRenderingContext2D, primitive: Primitive & { kind: "path" }): void {
+  const path = normalizePathPrimitive(primitive);
+  const points = getPathRenderablePoints(path);
+
+  if (points.length < 2) {
+    return;
+  }
+
+  ctx.save();
+  ctx.strokeStyle = rgbaToCss(path.color);
+  ctx.lineWidth = path.thickness;
+  ctx.lineCap = path.cap ?? "round";
+  ctx.lineJoin = path.join ?? "round";
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+
+  for (const point of points.slice(1)) {
+    ctx.lineTo(point.x, point.y);
+  }
+
+  ctx.stroke();
   ctx.restore();
 }
 

@@ -25,6 +25,10 @@
   overflow: hidden;
 }
 
+.music-waveform-preview {
+  cursor: pointer;
+}
+
 .waveform-canvas {
   display: block;
   width: 100%;
@@ -33,6 +37,10 @@
 
 .music-waveform-preview .music-loop-overlay {
   z-index: 1;
+}
+
+.music-waveform-preview .music-playhead {
+  z-index: 3;
 }
 
 .preview-meta {

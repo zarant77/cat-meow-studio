@@ -1,23 +1,41 @@
 import type { MusicPreviewQuality } from "../audio/musicGenerator.js";
-import { normalizeMusicLoop, type MusicInstrument, type MusicLoop, type MusicNote, type MusicProject } from "../model/musicProject.js";
+import {
+  normalizeMusicLoop,
+  normalizeMusicLoudness,
+  type MusicInstrument,
+  type MusicLoop,
+  type MusicNote,
+  type MusicProject,
+} from "../model/musicProject.js";
 import { sanitizeSoundId } from "../utils/validation.js";
 
 export interface MusicEditorState {
   project: MusicProject;
   selectedNoteId: string | null;
+  selectedNoteIds: string[];
+  noteSelectionAnchorId: string | null;
+  selectionStartTick: number;
+  selectionEndTick: number;
   selectedInstrumentIndex: number | null;
   playingNoteIds: string[];
   isPreviewPlaying: boolean;
   isPreviewRendering: boolean;
   previewQuality: MusicPreviewQuality;
   previewSamples: Float32Array;
+  currentPlaybackTick: number;
 }
 
-export type MusicProjectPatch = Partial<Pick<MusicProject, "id" | "bpm" | "ticksPerBeat" | "lengthTicks">> & {
+export type MusicProjectPatch = Partial<
+  Pick<MusicProject, "id" | "bpm" | "ticksPerBeat" | "lengthTicks" | "volume" | "normalizeVolume" | "targetAverageVolume" | "maxVolumeGain">
+> & {
   loop?: Partial<MusicLoop>;
 };
 export type MusicNotePatch = Partial<Omit<MusicNote, "id">>;
 export type MusicInstrumentPatch = Partial<MusicInstrument>;
+export interface MusicNoteSelectionOptions {
+  extendRange?: boolean;
+  toggle?: boolean;
+}
 
 interface MusicHistoryState {
   past: MusicProject[];
@@ -46,6 +64,7 @@ let musicState: MusicEditorState = {
     bpm: 120,
     ticksPerBeat: 4,
     lengthTicks: 16,
+    ...normalizeMusicLoudness({}),
     loop: {
       enabled: false,
       startTick: 0,
@@ -69,12 +88,17 @@ let musicState: MusicEditorState = {
     ],
   },
   selectedNoteId: "note-1",
+  selectedNoteIds: ["note-1"],
+  noteSelectionAnchorId: "note-1",
+  selectionStartTick: 0,
+  selectionEndTick: 16,
   selectedInstrumentIndex: 0,
   playingNoteIds: [],
   isPreviewPlaying: false,
   isPreviewRendering: false,
   previewQuality: "fast",
   previewSamples: new Float32Array(0),
+  currentPlaybackTick: 0,
 };
 
 let musicHistoryState: MusicHistoryState = {
@@ -87,11 +111,13 @@ export function getMusicEditorState(): MusicEditorState {
   return {
     ...musicState,
     project: cloneMusicProject(musicState.project),
+    selectedNoteIds: [...musicState.selectedNoteIds],
     playingNoteIds: [],
     isPreviewPlaying: false,
     isPreviewRendering: false,
     previewQuality: "fast",
     previewSamples: new Float32Array(0),
+    currentPlaybackTick: musicState.currentPlaybackTick,
   };
 }
 
@@ -182,17 +208,94 @@ export function updateMusicProject(patch: MusicProjectPatch): void {
   syncPresentMusicHistory();
 }
 
-export function selectMusicNote(noteId: string): void {
+export function selectMusicNote(noteId: string, options: MusicNoteSelectionOptions = {}): void {
   const note = musicState.project.notes.find((candidate) => candidate.id === noteId);
 
   if (note === undefined) {
     return;
   }
 
+  const selectedNoteIds = getNextSelectedNoteIds(note.id, options);
+  const primaryNote = getPrimarySelectedMusicNote(selectedNoteIds);
+
   musicState = {
     ...musicState,
-    selectedNoteId: note.id,
-    selectedInstrumentIndex: note.instrument,
+    selectedNoteId: getSingleSelectedNoteId(selectedNoteIds),
+    selectedNoteIds,
+    noteSelectionAnchorId: options.extendRange ? (musicState.noteSelectionAnchorId ?? note.id) : note.id,
+    selectedInstrumentIndex: primaryNote?.instrument ?? note.instrument,
+  };
+}
+
+export function selectAllMusicNotes(): void {
+  const selectedNoteIds = musicState.project.notes.map((note) => note.id);
+  const primaryNote = getPrimarySelectedMusicNote(selectedNoteIds);
+
+  musicState = {
+    ...musicState,
+    selectedNoteId: getSingleSelectedNoteId(selectedNoteIds),
+    selectedNoteIds,
+    noteSelectionAnchorId: primaryNote?.id ?? null,
+    selectedInstrumentIndex: primaryNote?.instrument ?? musicState.selectedInstrumentIndex,
+  };
+}
+
+export function clearMusicNoteSelection(): void {
+  musicState = {
+    ...musicState,
+    selectedNoteId: null,
+    selectedNoteIds: [],
+    noteSelectionAnchorId: null,
+  };
+}
+
+export function updateMusicSelectionRange(startTick: number, endTick: number): void {
+  const normalizedRange = normalizeSelectionRange(startTick, endTick);
+
+  musicState = {
+    ...musicState,
+    selectionStartTick: normalizedRange.startTick,
+    selectionEndTick: normalizedRange.endTick,
+  };
+}
+
+export function selectMusicNotesInRange(startTick = musicState.selectionStartTick, endTick = musicState.selectionEndTick): void {
+  const range = normalizeSelectionRange(startTick, endTick);
+  const selectedNoteIds = musicState.project.notes
+    .filter((note) => doesNoteOverlapRange(note, range.startTick, range.endTick))
+    .map((note) => note.id);
+  const primaryNote = getPrimarySelectedMusicNote(selectedNoteIds);
+
+  musicState = {
+    ...musicState,
+    selectionStartTick: range.startTick,
+    selectionEndTick: range.endTick,
+    selectedNoteId: getSingleSelectedNoteId(selectedNoteIds),
+    selectedNoteIds,
+    noteSelectionAnchorId: primaryNote?.id ?? null,
+    selectedInstrumentIndex: primaryNote?.instrument ?? musicState.selectedInstrumentIndex,
+  };
+}
+
+export function selectMusicNotesAtTick(tick: number): string[] {
+  const selectedNoteIds = getMusicNoteIdsForTickSelection(tick);
+  const primaryNote = getPrimarySelectedMusicNote(selectedNoteIds);
+
+  musicState = {
+    ...musicState,
+    selectedNoteId: getSingleSelectedNoteId(selectedNoteIds),
+    selectedNoteIds,
+    noteSelectionAnchorId: primaryNote?.id ?? null,
+    selectedInstrumentIndex: primaryNote?.instrument ?? musicState.selectedInstrumentIndex,
+  };
+
+  return selectedNoteIds;
+}
+
+export function setCurrentMusicPlaybackTick(tick: number): void {
+  musicState = {
+    ...musicState,
+    currentPlaybackTick: clampInteger(tick, 0, Math.max(0, musicState.project.lengthTicks)),
   };
 }
 
@@ -230,33 +333,97 @@ export function addMusicNote(): void {
       notes: sortMusicNotes([...musicState.project.notes, note]),
     },
     selectedNoteId: note.id,
+    selectedNoteIds: [note.id],
+    noteSelectionAnchorId: note.id,
     selectedInstrumentIndex,
   };
   syncPresentMusicHistory();
 }
 
-export function deleteSelectedMusicNote(): void {
-  if (musicState.selectedNoteId === null) {
-    return;
+export function deleteSelectedMusicNote(): number {
+  return deleteSelectedMusicNotes();
+}
+
+export function deleteSelectedMusicNotes(): number {
+  const selectedNoteIds = getValidSelectedNoteIds();
+
+  if (selectedNoteIds.length === 0) {
+    return 0;
   }
 
-  const noteIndex = musicState.project.notes.findIndex((note) => note.id === musicState.selectedNoteId);
+  const firstNoteIndex = musicState.project.notes.findIndex((note) => note.id === selectedNoteIds[0]);
 
-  if (noteIndex === -1) {
-    return;
+  if (firstNoteIndex === -1) {
+    return 0;
   }
 
   recordMusicHistoryEntry();
-  const notes = musicState.project.notes.filter((note) => note.id !== musicState.selectedNoteId);
+  const selectedNoteIdSet = new Set(selectedNoteIds);
+  const notes = musicState.project.notes.filter((note) => !selectedNoteIdSet.has(note.id));
+  const nextSelectedNoteId = notes[Math.min(firstNoteIndex, notes.length - 1)]?.id ?? null;
   musicState = {
     ...musicState,
     project: {
       ...musicState.project,
       notes,
     },
-    selectedNoteId: notes[Math.min(noteIndex, notes.length - 1)]?.id ?? null,
+    selectedNoteId: nextSelectedNoteId,
+    selectedNoteIds: nextSelectedNoteId === null ? [] : [nextSelectedNoteId],
+    noteSelectionAnchorId: nextSelectedNoteId,
   };
   syncPresentMusicHistory();
+
+  return selectedNoteIds.length;
+}
+
+export function deleteMusicNotesInRange(startTick = musicState.selectionStartTick, endTick = musicState.selectionEndTick): number {
+  const range = normalizeSelectionRange(startTick, endTick);
+  const noteIds = musicState.project.notes
+    .filter((note) => doesNoteOverlapRange(note, range.startTick, range.endTick))
+    .map((note) => note.id);
+
+  return deleteMusicNotesById(noteIds, range.startTick, range.endTick);
+}
+
+export function trimEmptyMusicIntro(): boolean {
+  const earliestNoteStart = musicState.project.notes.reduce<number | null>(
+    (earliest, note) => (earliest === null ? note.startTick : Math.min(earliest, note.startTick)),
+    null,
+  );
+
+  if (earliestNoteStart === null || earliestNoteStart <= 0) {
+    return false;
+  }
+
+  recordMusicHistoryEntry();
+  const shiftTicks = earliestNoteStart;
+  const notes = sortMusicNotes(
+    musicState.project.notes.map((note) => ({
+      ...note,
+      startTick: Math.max(0, note.startTick - shiftTicks),
+    })),
+  );
+  const maxNoteEndTick = notes.reduce((maxEndTick, note) => Math.max(maxEndTick, note.startTick + note.durationTicks), 0);
+  const lengthTicks = Math.max(1, musicState.project.lengthTicks - shiftTicks, maxNoteEndTick);
+  const loop = getTrimmedMusicLoop(shiftTicks, lengthTicks);
+  const selectionStartTick = Math.min(Math.max(0, lengthTicks - 1), Math.max(0, musicState.selectionStartTick - shiftTicks));
+  const selectionEndTick = Math.min(lengthTicks, Math.max(selectionStartTick + 1, Math.max(0, musicState.selectionEndTick - shiftTicks)));
+
+  musicState = {
+    ...musicState,
+    project: {
+      ...musicState.project,
+      lengthTicks,
+      loop,
+      notes,
+    },
+    selectionStartTick,
+    selectionEndTick,
+    currentPlaybackTick: Math.min(lengthTicks, Math.max(0, musicState.currentPlaybackTick - shiftTicks)),
+  };
+  syncPresentMusicHistory();
+
+  return true;
 }
 
 export function updateSelectedMusicNote(patch: MusicNotePatch): void {
@@ -282,6 +449,8 @@ export function updateMusicNote(noteId: string, patch: MusicNotePatch): void {
       notes: sortMusicNotes(musicState.project.notes.map((note) => (note.id === noteId ? { ...note, ...normalizedPatch } : note))),
     },
     selectedNoteId: noteId,
+    selectedNoteIds: [noteId],
+    noteSelectionAnchorId: noteId,
     selectedInstrumentIndex: normalizedPatch.instrument ?? musicState.selectedInstrumentIndex,
   };
   syncPresentMusicHistory();
@@ -348,6 +517,7 @@ export function deleteSelectedMusicInstrument(): void {
       ...note,
       instrument: note.instrument > removedIndex ? note.instrument - 1 : note.instrument,
     }));
+  const selectedNoteIds = getSaneSelectedNoteIds(notes, musicState.selectedNoteIds);
 
   musicState = {
     ...musicState,
@@ -356,14 +526,16 @@ export function deleteSelectedMusicInstrument(): void {
       instruments,
       notes,
     },
-    selectedNoteId: getSaneSelectedNoteId(notes, musicState.selectedNoteId),
+    selectedNoteIds,
+    selectedNoteId: getSingleSelectedNoteId(selectedNoteIds),
+    noteSelectionAnchorId: getSaneSelectedNoteId(notes, musicState.noteSelectionAnchorId),
     selectedInstrumentIndex: getSaneSelectedInstrumentIndex(instruments, Math.min(removedIndex, instruments.length - 1)),
   };
   syncPresentMusicHistory();
 }
 
 export function getSelectedMusicNote(state: MusicEditorState): MusicNote | null {
-  return state.project.notes.find((note) => note.id === state.selectedNoteId) ?? null;
+  return state.selectedNoteIds.length === 1 ? (state.project.notes.find((note) => note.id === state.selectedNoteIds[0]) ?? null) : null;
 }
 
 function createNote(id: string, instrument: number, note: number, startTick: number, durationTicks: number, volume: number): MusicNote {
@@ -396,6 +568,36 @@ function normalizeProjectPatch(patch: MusicProjectPatch, project: MusicProject):
     normalized.lengthTicks = Math.max(1, Math.round(patch.lengthTicks));
   }
 
+  if (
+    patch.volume !== undefined ||
+    patch.normalizeVolume !== undefined ||
+    patch.targetAverageVolume !== undefined ||
+    patch.maxVolumeGain !== undefined
+  ) {
+    const { loop: _loop, ...loudnessPatch } = patch;
+
+    const loudness = normalizeMusicLoudness({
+      ...project,
+      ...loudnessPatch,
+    });
+
+    if (patch.volume !== undefined) {
+      normalized.volume = loudness.volume;
+    }
+
+    if (patch.normalizeVolume !== undefined) {
+      normalized.normalizeVolume = loudness.normalizeVolume;
+    }
+
+    if (patch.targetAverageVolume !== undefined) {
+      normalized.targetAverageVolume = loudness.targetAverageVolume;
+    }
+
+    if (patch.maxVolumeGain !== undefined) {
+      normalized.maxVolumeGain = loudness.maxVolumeGain;
+    }
+  }
+
   if (patch.loop !== undefined || normalized.lengthTicks !== undefined) {
     normalized.loop = normalizeMusicLoop(
       {
@@ -415,6 +617,10 @@ function hasProjectPatchChange(patch: MusicProjectPatch): boolean {
     (patch.bpm !== undefined && patch.bpm !== musicState.project.bpm) ||
     (patch.ticksPerBeat !== undefined && patch.ticksPerBeat !== musicState.project.ticksPerBeat) ||
     (patch.lengthTicks !== undefined && patch.lengthTicks !== musicState.project.lengthTicks) ||
+    (patch.volume !== undefined && patch.volume !== musicState.project.volume) ||
+    (patch.normalizeVolume !== undefined && patch.normalizeVolume !== musicState.project.normalizeVolume) ||
+    (patch.targetAverageVolume !== undefined && patch.targetAverageVolume !== musicState.project.targetAverageVolume) ||
+    (patch.maxVolumeGain !== undefined && patch.maxVolumeGain !== musicState.project.maxVolumeGain) ||
     (patch.loop !== undefined && hasLoopPatchChange(patch.loop))
   );
 }
@@ -532,18 +738,24 @@ function applyMusicProject(
   preferredSelectedInstrumentIndex: number | null,
 ): void {
   const clonedProject = cloneMusicProject(project);
-  const selectedNoteId = getSaneSelectedNoteId(clonedProject.notes, preferredSelectedNoteId);
+  const selectedNoteIds = getSaneSelectedNoteIds(clonedProject.notes, preferredSelectedNoteId === null ? [] : [preferredSelectedNoteId]);
+  const selectedNoteId = getSingleSelectedNoteId(selectedNoteIds);
   const selectedInstrumentIndex = getSaneSelectedInstrumentIndex(clonedProject.instruments, preferredSelectedInstrumentIndex);
 
   musicState = {
     project: clonedProject,
     selectedNoteId,
+    selectedNoteIds,
+    noteSelectionAnchorId: selectedNoteIds[0] ?? null,
+    selectionStartTick: musicState.selectionStartTick,
+    selectionEndTick: Math.min(Math.max(1, clonedProject.lengthTicks), musicState.selectionEndTick),
     selectedInstrumentIndex,
     playingNoteIds: [],
     isPreviewPlaying: false,
     isPreviewRendering: false,
     previewQuality: "fast",
     previewSamples: new Float32Array(0),
+    currentPlaybackTick: 0,
   };
   nextNoteNumber = Math.max(getNextNoteNumber(clonedProject.notes), nextNoteNumber);
   syncPresentMusicHistory();
@@ -556,6 +768,7 @@ function createBlankMusicProject(): MusicProject {
     bpm: 120,
     ticksPerBeat: 4,
     lengthTicks: 16,
+    ...normalizeMusicLoudness({}),
     loop: {
       enabled: false,
       startTick: 0,
@@ -572,6 +785,181 @@ function getSaneSelectedNoteId(notes: MusicNote[], preferredSelectedNoteId: stri
   }
 
   return notes[0]?.id ?? null;
+}
+
+function getSaneSelectedNoteIds(notes: MusicNote[], preferredSelectedNoteIds: string[]): string[] {
+  const noteIds = new Set(notes.map((note) => note.id));
+  const selectedNoteIds = preferredSelectedNoteIds.filter(
+    (noteId, index) => noteIds.has(noteId) && preferredSelectedNoteIds.indexOf(noteId) === index,
+  );
+
+  if (selectedNoteIds.length > 0) {
+    return selectedNoteIds;
+  }
+
+  return notes[0] === undefined ? [] : [notes[0].id];
+}
+
+function getValidSelectedNoteIds(): string[] {
+  const noteIds = new Set(musicState.project.notes.map((note) => note.id));
+
+  return musicState.selectedNoteIds.filter((noteId, index) => noteIds.has(noteId) && musicState.selectedNoteIds.indexOf(noteId) === index);
+}
+
+function getSingleSelectedNoteId(selectedNoteIds: string[]): string | null {
+  return selectedNoteIds.length === 1 ? (selectedNoteIds[0] ?? null) : null;
+}
+
+function getPrimarySelectedMusicNote(selectedNoteIds: string[]): MusicNote | null {
+  const selectedNoteIdSet = new Set(selectedNoteIds);
+
+  return musicState.project.notes.find((note) => selectedNoteIdSet.has(note.id)) ?? null;
+}
+
+function getNextSelectedNoteIds(noteId: string, options: MusicNoteSelectionOptions): string[] {
+  if (options.extendRange) {
+    return getMusicNoteRangeSelection(noteId);
+  }
+
+  if (options.toggle) {
+    const selectedNoteIds = new Set(getValidSelectedNoteIds());
+
+    if (selectedNoteIds.has(noteId)) {
+      selectedNoteIds.delete(noteId);
+    } else {
+      selectedNoteIds.add(noteId);
+    }
+
+    return musicState.project.notes.filter((note) => selectedNoteIds.has(note.id)).map((note) => note.id);
+  }
+
+  return [noteId];
+}
+
+function getMusicNoteRangeSelection(noteId: string): string[] {
+  const notes = getSortedMusicNotes();
+  const anchorId = musicState.noteSelectionAnchorId ?? musicState.selectedNoteIds[0] ?? noteId;
+  const anchorIndex = notes.findIndex((note) => note.id === anchorId);
+  const noteIndex = notes.findIndex((note) => note.id === noteId);
+
+  if (anchorIndex === -1 || noteIndex === -1) {
+    return [noteId];
+  }
+
+  const startIndex = Math.min(anchorIndex, noteIndex);
+  const endIndex = Math.max(anchorIndex, noteIndex);
+
+  return notes.slice(startIndex, endIndex + 1).map((note) => note.id);
+}
+
+function getMusicNoteIdsForTickSelection(tick: number): string[] {
+  const currentTick = clampInteger(tick, 0, Math.max(0, musicState.project.lengthTicks));
+  const activeNoteIds = musicState.project.notes
+    .filter((note) => currentTick >= note.startTick && currentTick < note.startTick + note.durationTicks)
+    .map((note) => note.id);
+
+  if (activeNoteIds.length > 0) {
+    return activeNoteIds;
+  }
+
+  const nextStartTick = musicState.project.notes.reduce<number | null>((bestTick, note) => {
+    if (note.startTick < currentTick) {
+      return bestTick;
+    }
+
+    return bestTick === null ? note.startTick : Math.min(bestTick, note.startTick);
+  }, null);
+
+  if (nextStartTick !== null) {
+    return musicState.project.notes.filter((note) => note.startTick === nextStartTick).map((note) => note.id);
+  }
+
+  const previousStartTick = musicState.project.notes.reduce<number | null>((bestTick, note) => {
+    if (note.startTick >= currentTick) {
+      return bestTick;
+    }
+
+    return bestTick === null ? note.startTick : Math.max(bestTick, note.startTick);
+  }, null);
+
+  return previousStartTick === null
+    ? []
+    : musicState.project.notes.filter((note) => note.startTick === previousStartTick).map((note) => note.id);
+}
+
+function normalizeSelectionRange(startTick: number, endTick: number): { startTick: number; endTick: number } {
+  const start = clampInteger(startTick, 0, Math.max(0, musicState.project.lengthTicks));
+  const end = clampInteger(endTick, 0, Math.max(0, musicState.project.lengthTicks));
+  const minTick = Math.min(start, end);
+  const maxTick = Math.max(start, end);
+
+  return {
+    startTick: minTick,
+    endTick: Math.max(minTick + 1, maxTick),
+  };
+}
+
+function doesNoteOverlapRange(note: MusicNote, startTick: number, endTick: number): boolean {
+  return note.startTick < endTick && note.startTick + note.durationTicks > startTick;
+}
+
+function getTrimmedMusicLoop(shiftTicks: number, lengthTicks: number): MusicLoop {
+  const startTick = Math.max(0, musicState.project.loop.startTick - shiftTicks);
+  const endTick = Math.max(0, musicState.project.loop.endTick - shiftTicks);
+
+  if (musicState.project.loop.enabled && endTick <= startTick) {
+    return normalizeMusicLoop(
+      {
+        enabled: false,
+        startTick: 0,
+        endTick: lengthTicks,
+      },
+      lengthTicks,
+    );
+  }
+
+  return normalizeMusicLoop(
+    {
+      ...musicState.project.loop,
+      startTick,
+      endTick,
+    },
+    lengthTicks,
+  );
+}
+
+function deleteMusicNotesById(noteIds: string[], selectionStartTick: number, selectionEndTick: number): number {
+  const noteIdSet = new Set(noteIds);
+
+  if (noteIdSet.size === 0) {
+    return 0;
+  }
+
+  const firstNoteIndex = musicState.project.notes.findIndex((note) => noteIdSet.has(note.id));
+
+  if (firstNoteIndex === -1) {
+    return 0;
+  }
+
+  recordMusicHistoryEntry();
+  const notes = musicState.project.notes.filter((note) => !noteIdSet.has(note.id));
+  const nextSelectedNoteId = notes[Math.min(firstNoteIndex, notes.length - 1)]?.id ?? null;
+
+  musicState = {
+    ...musicState,
+    project: {
+      ...musicState.project,
+      notes,
+    },
+    selectionStartTick,
+    selectionEndTick,
+    selectedNoteId: nextSelectedNoteId,
+    selectedNoteIds: nextSelectedNoteId === null ? [] : [nextSelectedNoteId],
+    noteSelectionAnchorId: nextSelectedNoteId,
+  };
+  syncPresentMusicHistory();
+
+  return noteIdSet.size;
 }
 
 function getSaneSelectedInstrumentIndex(instruments: MusicInstrument[], preferredSelectedInstrumentIndex: number | null): number | null {
@@ -605,8 +993,11 @@ function clampInteger(value: number, minimum: number, maximum: number): number {
 }
 
 function cloneMusicProject(project: MusicProject): MusicProject {
+  const loudness = normalizeMusicLoudness(project);
+
   return {
     ...project,
+    ...loudness,
     loop: normalizeMusicLoop(project.loop, project.lengthTicks),
     instruments: project.instruments.map((instrument) => ({ ...instrument })),
     notes: sortMusicNotes(project.notes.map((note) => ({ ...note }))),
@@ -614,5 +1005,12 @@ function cloneMusicProject(project: MusicProject): MusicProject {
 }
 
 function sortMusicNotes(notes: MusicNote[]): MusicNote[] {
-  return [...notes].sort((left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note);
+  return [...notes].sort(
+    (left, right) =>
+      left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note || left.id.localeCompare(right.id),
+  );
+}
+
+function getSortedMusicNotes(): MusicNote[] {
+  return sortMusicNotes(musicState.project.notes);
 }

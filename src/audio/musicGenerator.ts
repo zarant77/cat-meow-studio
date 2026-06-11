@@ -1,5 +1,6 @@
 import { soundSampleRate } from "./soundGenerator.js";
 import type { MusicInstrument, MusicNote, MusicProject } from "../model/musicProject.js";
+import { getEffectiveNoteVolume, getTrackVolumeStats, type MusicVolumeStats } from "../model/musicLoudness.js";
 
 const twoPi = Math.PI * 2;
 const softLimiterDrive = 0.9;
@@ -61,13 +62,14 @@ export function generateMusicSamples(project: MusicProject, options: MusicGenera
 
   const tickSeconds = getTickSeconds(project);
   const profiles = getInstrumentProfiles(project);
+  const volumeStats = getTrackVolumeStats(project);
 
   for (const note of project.notes) {
     const instrument = project.instruments[note.instrument];
     const profile = profiles[note.instrument];
 
     if (instrument !== undefined && profile !== undefined) {
-      mixNote(samples, instrument, note, profile, tickSeconds, quality);
+      mixNote(samples, project, instrument, note, profile, tickSeconds, quality, volumeStats);
     }
   }
 
@@ -92,11 +94,13 @@ function getProjectSampleCount(project: MusicProject): number {
 
 function mixNote(
   output: Float32Array,
+  project: MusicProject,
   instrument: MusicInstrument,
   note: MusicNote,
   profile: InstrumentProfile,
   tickSeconds: number,
   quality: MusicPreviewQuality,
+  volumeStats: MusicVolumeStats,
 ): void {
   const startSample = Math.max(0, Math.round(note.startTick * tickSeconds * soundSampleRate));
   const durationSamples = Math.max(1, Math.round(note.durationTicks * tickSeconds * soundSampleRate));
@@ -107,7 +111,7 @@ function mixNote(
 
   const endSample = Math.min(output.length, startSample + durationSamples);
   const layerStates = createLayerStates(note, getVoiceLayers(instrument, note, profile.role, quality));
-  const volume = getNoteVolume(instrument, note, profile) * masterGain;
+  const volume = getNoteVolume(project, instrument, note, profile, volumeStats) * masterGain;
   const envelopeSettings = getEnvelopeSettings(instrument, profile.role, durationSamples);
 
   for (let sampleIndex = startSample; sampleIndex < endSample; sampleIndex += 1) {
@@ -281,8 +285,14 @@ function createLayerStates(note: MusicNote, layers: SynthVoiceLayer[]): LayerSta
   });
 }
 
-function getNoteVolume(instrument: MusicInstrument, note: MusicNote, profile: InstrumentProfile): number {
-  const baseVolume = (instrument.volume / 100) * (note.volume / 100);
+function getNoteVolume(
+  project: MusicProject,
+  instrument: MusicInstrument,
+  note: MusicNote,
+  profile: InstrumentProfile,
+  volumeStats: MusicVolumeStats,
+): number {
+  const baseVolume = (instrument.volume / 100) * (getEffectiveNoteVolume(note, project, volumeStats) / 100);
   const highNoteGain = note.note > 84 ? Math.max(0.48, 1 - (note.note - 84) * 0.04) : 1;
   const lowNoteGain = note.note < 32 ? 0.78 : 1;
 

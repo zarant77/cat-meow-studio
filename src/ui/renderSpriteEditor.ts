@@ -9,6 +9,7 @@ import {
   Group,
   Maximize2,
   PaintBucket,
+  PenLine,
   Pipette,
   Redo2,
   RotateCw,
@@ -99,6 +100,7 @@ function createSpriteMount(): {
   undoButton: HTMLButtonElement;
   redoButton: HTMLButtonElement;
   statusElement: HTMLElement;
+  pathProperties: HTMLElement;
 } {
   const assetPanel = renderAssetSidebarPanel("sprites-asset-panel toolbar");
   const editorArea = renderEditorArea("sprites-editor-area");
@@ -133,6 +135,7 @@ function createSpriteMount(): {
     createToolButton("rect", Square, "Rectangle (1)"),
     createToolButton("circle", Circle, "Circle (2)"),
     createToolButton("triangle", Triangle, "Triangle (3)"),
+    createToolButton("path", PenLine, "Path / Line (4)"),
   ];
   const editToolButtons = [
     createToolButton("fill", PaintBucket, "Fill (F)"),
@@ -214,11 +217,11 @@ function createSpriteMount(): {
   canvasWrap.append(canvas);
   editorArea.append(canvasWrap, canvasZoomControl);
 
-  const groupButton = createSpriteButton(Group, "Group selected primitives", "sprite-icon-button");
+  const groupButton = createSpriteButton(Group, "Group selected nodes", "sprite-icon-button");
   const ungroupButton = createSpriteButton(Ungroup, "Ungroup selected group", "sprite-icon-button");
-  const copyPrimitiveButton = createSpriteButton(Copy, "Copy selected primitives (Ctrl/Cmd+C)", "sprite-icon-button");
-  const pastePrimitiveButton = createSpriteButton(ClipboardPaste, "Paste primitives (Ctrl/Cmd+V)", "sprite-icon-button");
-  const deletePrimitiveButton = createSpriteButton(Trash2, "Delete selected primitives (Delete)", "sprite-icon-button danger");
+  const copyPrimitiveButton = createSpriteButton(Copy, "Copy selected nodes (Ctrl/Cmd+C)", "sprite-icon-button");
+  const pastePrimitiveButton = createSpriteButton(ClipboardPaste, "Paste nodes (Ctrl/Cmd+V)", "sprite-icon-button");
+  const deletePrimitiveButton = createSpriteButton(Trash2, "Delete selected nodes (Delete)", "sprite-icon-button danger");
 
   const tabBar = createElement("div", "sprite-inspector-tabs");
   const primitivesTab = createSpriteTabButton("Primitives", "primitives");
@@ -244,7 +247,8 @@ function createSpriteMount(): {
     "div",
     `sprite-inspector-tab-panel${activeSpriteInspectorTab === "properties" ? " is-active" : ""}`,
   );
-  propertiesPanel.append(spriteFields);
+  const pathProperties = createElement("section", "sprite-inspector-section sprite-path-properties");
+  propertiesPanel.append(spriteFields, pathProperties);
 
   const examplePanel = createElement(
     "div",
@@ -308,6 +312,7 @@ function createSpriteMount(): {
     undoButton,
     redoButton,
     statusElement,
+    pathProperties,
   };
 }
 

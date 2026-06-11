@@ -53,7 +53,7 @@ function renderModeSurface(
     destroyAnimatorWorkspace();
     return {
       ...renderMusicWorkspaceSurface(musicState, actions.music, actions.shell),
-      previewStatusArea: renderMusicPreview(musicState),
+      previewStatusArea: renderMusicPreview(musicState, actions.music),
     };
   }
 

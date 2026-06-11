@@ -1,10 +1,13 @@
 import type { SpriteAssetData } from "../model/assets.js";
-import { flattenNodes } from "../sprites/document/CatPaintDocument.js";
+import type { SceneNode } from "../sprites/document/CatPaintDocument.js";
 import type { Primitive } from "../sprites/primitives/Primitive.js";
+import { normalizePathPrimitive } from "../sprites/primitives/pathPrimitive.js";
 import { isValidSoundId } from "../utils/symbolName.js";
 
-interface ExportedSpritePrimitive {
-  kind: Primitive["kind"];
+type ExportedSpritePrimitive = ExportedSpriteShapePrimitive | ExportedSpritePathPrimitive;
+
+interface ExportedSpriteShapePrimitive {
+  kind: "rect" | "circle" | "triangle";
   x: number;
   y: number;
   w: number;
@@ -13,14 +16,45 @@ interface ExportedSpritePrimitive {
   color: string;
 }
 
+interface ExportedSpritePathPrimitive {
+  kind: "path";
+  points: [number, number][];
+  thickness: number;
+  cap: "butt" | "round";
+  join: "round";
+  smoothing: "none" | "quadratic";
+  segments: number;
+  color: string;
+}
+
+type ExportedSpriteNode = ExportedPrimitiveNode | ExportedGroupNode;
+
+interface ExportedPrimitiveNode {
+  type: "primitive";
+  id: string;
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  primitive: ExportedSpritePrimitive;
+}
+
+interface ExportedGroupNode {
+  type: "group";
+  id: string;
+  name?: string;
+  visible?: boolean;
+  locked?: boolean;
+  children: ExportedSpriteNode[];
+}
+
 interface ExportedSpriteJson {
-  version: 1;
+  version: 2;
   id: string;
   width: number;
   height: number;
   pivotX: number;
   pivotY: number;
-  primitives: ExportedSpritePrimitive[];
+  nodes: ExportedSpriteNode[];
 }
 
 export function exportSpriteJson(sprite: SpriteAssetData): string | null {
@@ -29,19 +63,56 @@ export function exportSpriteJson(sprite: SpriteAssetData): string | null {
   }
 
   const exportedSprite: ExportedSpriteJson = {
-    version: 1,
+    version: 2,
     id: sprite.spriteId,
     width: toInteger(sprite.width),
     height: toInteger(sprite.height),
     pivotX: toInteger(sprite.pivotX),
     pivotY: toInteger(sprite.pivotY),
-    primitives: flattenNodes(sprite.nodes).map(exportPrimitive),
+    nodes: sprite.nodes.map(exportNode),
   };
 
   return `${JSON.stringify(exportedSprite, null, 2)}\n`;
 }
 
+function exportNode(node: SceneNode): ExportedSpriteNode {
+  if (node.type === "primitive") {
+    return {
+      type: "primitive",
+      id: node.id,
+      name: node.name,
+      visible: node.visible,
+      locked: node.locked,
+      primitive: exportPrimitive(node.command),
+    };
+  }
+
+  return {
+    type: "group",
+    id: node.id,
+    name: node.name,
+    visible: node.visible,
+    locked: node.locked,
+    children: node.children.map(exportNode),
+  };
+}
+
 function exportPrimitive(primitive: Primitive): ExportedSpritePrimitive {
+  if (primitive.kind === "path") {
+    const path = normalizePathPrimitive(primitive);
+
+    return {
+      kind: "path",
+      points: path.points,
+      thickness: path.thickness,
+      cap: path.cap ?? "round",
+      join: path.join ?? "round",
+      smoothing: path.smoothing ?? "none",
+      segments: path.segments ?? 8,
+      color: isRgba(path.color) ? path.color : "000000ff",
+    };
+  }
+
   return {
     kind: primitive.kind,
     x: toInteger(primitive.x),

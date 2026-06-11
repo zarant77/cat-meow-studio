@@ -35,10 +35,21 @@ export interface MusicProject {
   bpm: number;
   ticksPerBeat: number;
   lengthTicks: number;
+  volume: number;
+  normalizeVolume: boolean;
+  targetAverageVolume: number;
+  maxVolumeGain: number;
   loop: MusicLoop;
   instruments: MusicInstrument[];
   notes: MusicNote[];
 }
+
+export const defaultMusicVolume = 1;
+export const defaultNormalizeMusicVolume = false;
+export const defaultMusicTargetAverageVolume = 80;
+export const defaultMusicMaxVolumeGain = 3;
+export const minMusicNoteVolume = 0;
+export const maxMusicNoteVolume = 100;
 
 export function createDefaultMusicLoop(lengthTicks: number): MusicLoop {
   return {
@@ -46,6 +57,26 @@ export function createDefaultMusicLoop(lengthTicks: number): MusicLoop {
     startTick: 0,
     endTick: Math.max(1, Math.round(lengthTicks)),
   };
+}
+
+export function normalizeMusicLoudness(project: Partial<MusicProject>): Pick<
+  MusicProject,
+  "volume" | "normalizeVolume" | "targetAverageVolume" | "maxVolumeGain"
+> {
+  return {
+    volume: clampNumber(project.volume ?? defaultMusicVolume, 0, 4),
+    normalizeVolume: project.normalizeVolume ?? defaultNormalizeMusicVolume,
+    targetAverageVolume: clampInteger(project.targetAverageVolume ?? defaultMusicTargetAverageVolume, minMusicNoteVolume, maxMusicNoteVolume),
+    maxVolumeGain: clampNumber(project.maxVolumeGain ?? defaultMusicMaxVolumeGain, 1, 8),
+  };
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  if (!Number.isFinite(value)) {
+    return minimum;
+  }
+
+  return Math.min(maximum, Math.max(minimum, value));
 }
 
 export function normalizeMusicLoop(loop: Partial<MusicLoop> | undefined, lengthTicks: number): MusicLoop {

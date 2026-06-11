@@ -261,10 +261,12 @@ function createNodeMarker(node: SceneNode): HTMLElement {
   const cssColor = `#${node.command.color.slice(0, 6)}`;
 
   marker.className = `primitive-list-kind primitive-list-shape-marker is-${node.command.kind}`;
-  marker.title = `${node.command.kind}, ${formatPrimitiveColor(node.command)}`;
+  marker.title = formatPrimitiveLabel(node.command);
   marker.style.opacity = String(alpha);
 
-  if (node.command.kind === "triangle") {
+  if (node.command.kind === "path") {
+    marker.style.setProperty("--primitive-path-color", cssColor);
+  } else if (node.command.kind === "triangle") {
     marker.style.borderBottomColor = cssColor;
   } else {
     marker.style.backgroundColor = cssColor;
@@ -486,6 +488,10 @@ function focusClosestRow(target: EventTarget | null): void {
 }
 
 function formatPrimitiveSize(primitive: Primitive): string {
+  if (primitive.kind === "path") {
+    return `${primitive.points.length} points · ${Math.round(primitive.thickness)}px`;
+  }
+
   if (primitive.kind === "circle") {
     return String(Math.round(primitive.w));
   }
@@ -502,5 +508,9 @@ function formatNodeTitle(node: SceneNode): string {
     return `${node.name}: ${node.children.length} nodes`;
   }
 
-  return `${node.name}: ${node.command.kind}, ${formatPrimitiveColor(node.command)}, ${formatPrimitiveSize(node.command)}`;
+  return `${node.name}: ${formatPrimitiveLabel(node.command)}`;
+}
+
+function formatPrimitiveLabel(primitive: Primitive): string {
+  return `${primitive.kind}, ${formatPrimitiveColor(primitive)}, ${formatPrimitiveSize(primitive)}`;
 }

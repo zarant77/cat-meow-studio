@@ -1,4 +1,12 @@
-import { isMusicWave, normalizeMusicLoop, type MusicInstrument, type MusicLoop, type MusicNote, type MusicProject } from "../model/musicProject.js";
+import {
+  isMusicWave,
+  normalizeMusicLoop,
+  normalizeMusicLoudness,
+  type MusicInstrument,
+  type MusicLoop,
+  type MusicNote,
+  type MusicProject,
+} from "../model/musicProject.js";
 import { isValidSoundId } from "../utils/symbolName.js";
 
 export type ImportMusicJsonResult =
@@ -85,6 +93,12 @@ export function importMusicJson(text: string): ImportMusicJsonResult {
   }
 
   const loop = parseLoop(parsed.loop, lengthTicks);
+  const loudness = normalizeMusicLoudness({
+    volume: parseNumber(parsed.volume) ?? undefined,
+    normalizeVolume: typeof parsed.normalizeVolume === "boolean" ? parsed.normalizeVolume : undefined,
+    targetAverageVolume: parseInteger(parsed.targetAverageVolume) ?? undefined,
+    maxVolumeGain: parseNumber(parsed.maxVolumeGain) ?? undefined,
+  });
 
   return {
     ok: true,
@@ -94,6 +108,7 @@ export function importMusicJson(text: string): ImportMusicJsonResult {
       bpm,
       ticksPerBeat,
       lengthTicks,
+      ...loudness,
       loop,
       instruments,
       notes,
@@ -221,11 +236,21 @@ function parseLoop(value: unknown, lengthTicks: number): MusicLoop {
 }
 
 function parseInteger(value: unknown): number | null {
+  const parsed = parseNumber(value);
+
+  if (parsed === null) {
+    return null;
+  }
+
+  return Math.round(parsed);
+}
+
+function parseNumber(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return null;
   }
 
-  return Math.round(value);
+  return value;
 }
 
 function parseMinimumInteger(value: unknown, minimum: number): number | null {

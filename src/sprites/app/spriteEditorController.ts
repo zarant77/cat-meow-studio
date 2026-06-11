@@ -11,6 +11,7 @@ import {
   getSceneNodeEntries,
 } from "../document/CatPaintDocument.js";
 import type { Primitive, ToolKind } from "../primitives/Primitive.js";
+import { getPathBounds, scalePathFromStart, translatePath } from "../primitives/pathPrimitive.js";
 import { bindPrimitiveList } from "../ui/primitiveList.js";
 import type { AppElements } from "../ui/elements.js";
 import { applyHistorySnapshot, createHistorySnapshot, createInitialState, type AppState } from "./AppState.js";
@@ -70,6 +71,7 @@ type SpriteEditorControls = {
   undoButton: HTMLButtonElement;
   redoButton: HTMLButtonElement;
   statusElement: HTMLElement;
+  pathProperties: HTMLElement;
 };
 
 type SpriteEditorMount = AppElements & SpriteEditorControls;
@@ -303,8 +305,17 @@ export class SpriteEditorController {
       return true;
     }
 
+    if (matchesHotkey(event, "enter") && this.canvasView?.finishActivePath()) {
+      event.preventDefault();
+      return true;
+    }
+
     if (matchesHotkey(event, "delete") || matchesHotkey(event, "backspace")) {
       event.preventDefault();
+      if (this.canvasView?.removeLastPathPoint()) {
+        return true;
+      }
+
       this.deleteSelectedPrimitive();
       return true;
     }
@@ -378,6 +389,12 @@ export class SpriteEditorController {
     if (matchesHotkey(event, "3")) {
       event.preventDefault();
       this.selectTool("triangle");
+      return true;
+    }
+
+    if (matchesHotkey(event, "4")) {
+      event.preventDefault();
+      this.selectTool("path");
       return true;
     }
 
@@ -510,8 +527,7 @@ export class SpriteEditorController {
     this.recordHistory();
 
     for (const entry of getPrimitiveNodeEntries(this.state.nodes)) {
-      entry.command.x -= bounds.minX;
-      entry.command.y -= bounds.minY;
+      translatePrimitive(entry.command, -bounds.minX, -bounds.minY);
     }
 
     this.state.spriteWidth = width;
@@ -685,8 +701,7 @@ export class SpriteEditorController {
 
     if (
       selectedEntries.length < 2 ||
-      selectedEntries.some((entry) => this.isNodeOrAncestorLocked(entry)) ||
-      !selectedEntries.every((entry) => entry.node.type === "primitive")
+      selectedEntries.some((entry) => this.isNodeOrAncestorLocked(entry))
     ) {
       this.syncUi();
       return;
@@ -760,8 +775,7 @@ export class SpriteEditorController {
     this.recordHistory();
 
     for (const { primitive } of selectedPrimitives) {
-      primitive.x = Math.round(center.x - (primitive.x - center.x));
-      primitive.rotation = -primitive.rotation;
+      flipPrimitiveHorizontal(primitive, center);
     }
 
     this.state.redoStack = [];
@@ -780,8 +794,7 @@ export class SpriteEditorController {
     this.recordHistory();
 
     for (const { primitive } of selectedPrimitives) {
-      primitive.y = Math.round(center.y - (primitive.y - center.y));
-      primitive.rotation = 180 - primitive.rotation;
+      flipPrimitiveVertical(primitive, center);
     }
 
     this.state.redoStack = [];
@@ -893,6 +906,7 @@ export class SpriteEditorController {
   private syncUi(): void {
     this.renderPrimitiveList();
     this.syncSelectedControls();
+    this.syncPathProperties();
     this.syncStatus();
     this.syncShellHistoryControls();
     this.assetChangeListener?.(this.getSpriteAssetData());
@@ -946,8 +960,7 @@ export class SpriteEditorController {
     const canGroup =
       selectedEntries.length > 1 &&
       canEditSelectedEntries &&
-      this.isSameParentSelection(selectedEntries) &&
-      selectedEntries.every((entry) => entry.node.type === "primitive");
+      this.isSameParentSelection(selectedEntries);
     const canUngroup = selectedEntries.length === 1 && canEditSelectedEntries && firstEntry?.node.type === "group";
 
     this.mount.flipHorizontalButton.disabled = !hasSelection;
@@ -1055,6 +1068,136 @@ export class SpriteEditorController {
     this.mount.exampleOffsetYInput.disabled = !hasExampleImage;
     this.mount.exampleScaleInput.disabled = !hasExampleImage;
     this.mount.deleteExampleButton.disabled = !hasExampleImage;
+  }
+
+  private syncPathProperties(): void {
+    if (!this.mount) {
+      return;
+    }
+
+    const path = this.getSingleSelectedPathPrimitive();
+    this.mount.pathProperties.replaceChildren();
+
+    if (!path) {
+      this.mount.pathProperties.hidden = true;
+      return;
+    }
+
+    this.mount.pathProperties.hidden = false;
+    this.mount.pathProperties.append(createTextNodeElement("h2", "Path"));
+    this.mount.pathProperties.append(createReadonlyPathLine(`Points: ${path.points.length}`));
+    this.mount.pathProperties.append(
+      createPathNumberField("Thickness", path.thickness, 1, 256, 1, (value) => {
+        this.recordHistory();
+        path.thickness = value;
+        this.state.redoStack = [];
+        this.canvasView?.render();
+      }),
+    );
+    this.mount.pathProperties.append(
+      createPathSelectField("Cap", path.cap ?? "round", ["round", "butt"], (value) => {
+        this.recordHistory();
+        path.cap = value as "round" | "butt";
+        this.state.redoStack = [];
+        this.canvasView?.render();
+      }),
+    );
+    this.mount.pathProperties.append(createReadonlyPathLine("Join: round"));
+    this.mount.pathProperties.append(
+      createPathSelectField("Smoothing", path.smoothing ?? "none", ["none", "quadratic"], (value) => {
+        this.recordHistory();
+        path.smoothing = value as "none" | "quadratic";
+        this.state.redoStack = [];
+        this.canvasView?.render();
+      }),
+    );
+    if ((path.smoothing ?? "none") !== "none") {
+      this.mount.pathProperties.append(
+        createPathNumberField("Segments", path.segments ?? 8, 1, 64, 1, (value) => {
+          this.recordHistory();
+          path.segments = value;
+          this.state.redoStack = [];
+          this.canvasView?.render();
+        }),
+      );
+    }
+    this.mount.pathProperties.append(
+      createPathTextField("Color", path.color, (value) => {
+        const nextColor = this.parseColorInput(value);
+
+        if (nextColor) {
+          this.recordHistory();
+          path.color = nextColor;
+          this.state.redoStack = [];
+          this.canvasView?.render();
+        }
+      }),
+    );
+
+    const pointsSection = document.createElement("div");
+    pointsSection.className = "sprite-path-points";
+    pointsSection.append(createTextNodeElement("h3", "Points"));
+
+    path.points.forEach((point, index) => {
+      const row = document.createElement("div");
+      row.className = "sprite-path-point-row";
+      row.append(
+        createTextNodeElement("span", String(index)),
+        createPathNumberInput(point[0], -2048, 2048, 1, (value) => {
+          this.recordHistory();
+          point[0] = value;
+          this.state.redoStack = [];
+          this.canvasView?.render();
+        }),
+        createPathNumberInput(point[1], -2048, 2048, 1, (value) => {
+          this.recordHistory();
+          point[1] = value;
+          this.state.redoStack = [];
+          this.canvasView?.render();
+        }),
+      );
+
+      if (path.points.length > 2) {
+        const removeButton = document.createElement("button");
+        removeButton.type = "button";
+        removeButton.className = "sprite-icon-button danger";
+        removeButton.textContent = "x";
+        removeButton.title = `Delete point ${index}`;
+        removeButton.setAttribute("aria-label", `Delete point ${index}`);
+        removeButton.addEventListener("click", () => {
+          if (path.points.length <= 2) {
+            return;
+          }
+
+          this.recordHistory();
+          path.points.splice(index, 1);
+          this.state.redoStack = [];
+          this.canvasView?.render();
+        });
+        row.append(removeButton);
+      }
+
+      pointsSection.append(row);
+    });
+
+    const addPointButton = document.createElement("button");
+    addPointButton.type = "button";
+    addPointButton.className = "sprite-button";
+    addPointButton.textContent = "Add Point";
+    addPointButton.addEventListener("click", () => {
+      const last = path.points[path.points.length - 1];
+
+      if (!last) {
+        return;
+      }
+
+      this.recordHistory();
+      path.points.push([last[0] + 12, last[1]]);
+      this.state.redoStack = [];
+      this.canvasView?.render();
+    });
+    pointsSection.append(addPointButton);
+    this.mount.pathProperties.append(pointsSection);
   }
 
   private syncStatus(): void {
@@ -1171,6 +1314,10 @@ export class SpriteEditorController {
   }
 
   private getPrimitiveBounds(primitive: Primitive): PrimitiveBounds {
+    if (primitive.kind === "path") {
+      return getPathBounds(primitive) ?? { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+    }
+
     const height = primitive.kind === "circle" && primitive.h <= 0 ? primitive.w : primitive.h;
 
     return {
@@ -1211,6 +1358,22 @@ export class SpriteEditorController {
 
   private getSelectedEditableNodes(): SceneNode[] {
     return this.getSelectedEntries().filter((entry) => !this.isNodeOrAncestorLocked(entry)).map((entry) => entry.node);
+  }
+
+  private getSingleSelectedPathPrimitive(): (Primitive & { kind: "path" }) | null {
+    const selectedEntries = this.getSelectedEntries();
+
+    if (selectedEntries.length !== 1) {
+      return null;
+    }
+
+    const node = selectedEntries[0]?.node;
+
+    if (!node || node.type !== "primitive" || node.command.kind !== "path") {
+      return null;
+    }
+
+    return node.command;
   }
 
   private getSelectedEntries(): SceneNodeEntry[] {
@@ -1328,6 +1491,97 @@ function bindCommitInput(input: HTMLInputElement, commit: () => void): void {
   });
 }
 
+function createTextNodeElement(tagName: keyof HTMLElementTagNameMap, text: string): HTMLElement {
+  const element = document.createElement(tagName);
+  element.textContent = text;
+
+  return element;
+}
+
+function createReadonlyPathLine(text: string): HTMLElement {
+  const line = document.createElement("p");
+  line.className = "sprite-path-property-line";
+  line.textContent = text;
+
+  return line;
+}
+
+function createPathNumberField(
+  labelText: string,
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  onCommit: (value: number) => void,
+): HTMLLabelElement {
+  const label = document.createElement("label");
+  const span = document.createElement("span");
+  span.textContent = labelText;
+  label.append(span, createPathNumberInput(value, min, max, step, onCommit));
+
+  return label;
+}
+
+function createPathTextField(labelText: string, value: string, onCommit: (value: string) => void): HTMLLabelElement {
+  const label = document.createElement("label");
+  const span = document.createElement("span");
+  const input = document.createElement("input");
+
+  span.textContent = labelText;
+  input.type = "text";
+  input.value = value;
+  bindCommitInput(input, () => onCommit(input.value));
+  label.append(span, input);
+
+  return label;
+}
+
+function createPathSelectField(
+  labelText: string,
+  value: string,
+  values: readonly string[],
+  onCommit: (value: string) => void,
+): HTMLLabelElement {
+  const label = document.createElement("label");
+  const span = document.createElement("span");
+  const select = document.createElement("select");
+
+  span.textContent = labelText;
+  values.forEach((optionValue) => {
+    const option = document.createElement("option");
+    option.value = optionValue;
+    option.textContent = optionValue;
+    option.selected = optionValue === value;
+    select.append(option);
+  });
+  select.addEventListener("change", () => onCommit(select.value));
+  label.append(span, select);
+
+  return label;
+}
+
+function createPathNumberInput(
+  value: number,
+  min: number,
+  max: number,
+  step: number,
+  onCommit: (value: number) => void,
+): HTMLInputElement {
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.value = String(Math.round(value));
+  bindCommitInput(input, () => {
+    const nextValue = clampNumber(Number(input.value), min, max);
+    input.value = String(Math.round(nextValue));
+    onCommit(Math.round(nextValue));
+  });
+
+  return input;
+}
+
 function isCanvasDimension(value: number): boolean {
   return Number.isInteger(value) && value >= 1 && value <= maximumCanvasSize;
 }
@@ -1378,6 +1632,7 @@ function isToolKind(value: string | undefined): value is NonNullable<ToolKind> {
     value === "rect" ||
     value === "circle" ||
     value === "triangle" ||
+    value === "path" ||
     value === "fill" ||
     value === "eyedropper" ||
     value === "rotate" ||
@@ -1400,6 +1655,11 @@ function arraysEqual(left: SceneNode[], right: SceneNode[]): boolean {
 }
 
 function scalePrimitiveAround(primitive: Primitive, center: { x: number; y: number }, factor: number): void {
+  if (primitive.kind === "path") {
+    scalePathFromStart(primitive, { ...primitive, points: primitive.points.map((point) => [...point]) }, center, factor);
+    return;
+  }
+
   const x = center.x + (primitive.x - center.x) * factor;
   const y = center.y + (primitive.y - center.y) * factor;
   const w = primitive.w * factor;
@@ -1411,11 +1671,45 @@ function scalePrimitiveAround(primitive: Primitive, center: { x: number; y: numb
 }
 
 function getScaledPrimitiveHeight(primitive: Primitive, factor: number): number {
+  if (primitive.kind === "path") {
+    return Math.max(1, Math.round(primitive.thickness * factor));
+  }
+
   if (primitive.kind === "circle" && primitive.h === 0) {
     return 0;
   }
 
   return toPositiveInteger(primitive.h * factor, primitive.h);
+}
+
+function translatePrimitive(primitive: Primitive, dx: number, dy: number): void {
+  if (primitive.kind === "path") {
+    translatePath(primitive, dx, dy);
+    return;
+  }
+
+  primitive.x += dx;
+  primitive.y += dy;
+}
+
+function flipPrimitiveHorizontal(primitive: Primitive, center: { x: number; y: number }): void {
+  if (primitive.kind === "path") {
+    primitive.points = primitive.points.map(([x, y]) => [Math.round(center.x - (x - center.x)), y]);
+    return;
+  }
+
+  primitive.x = Math.round(center.x - (primitive.x - center.x));
+  primitive.rotation = -primitive.rotation;
+}
+
+function flipPrimitiveVertical(primitive: Primitive, center: { x: number; y: number }): void {
+  if (primitive.kind === "path") {
+    primitive.points = primitive.points.map(([x, y]) => [x, Math.round(center.y - (y - center.y))]);
+    return;
+  }
+
+  primitive.y = Math.round(center.y - (primitive.y - center.y));
+  primitive.rotation = 180 - primitive.rotation;
 }
 
 function toFiniteInteger(value: number, fallback: number): number {

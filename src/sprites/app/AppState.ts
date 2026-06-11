@@ -1,6 +1,6 @@
 import type { SceneNode } from "../document/CatPaintDocument.js";
 import { cloneNodes } from "../document/CatPaintDocument.js";
-import type { PrimitiveKind, ToolKind } from "../primitives/Primitive.js";
+import type { ShapePrimitiveKind, ToolKind } from "../primitives/Primitive.js";
 
 export type AppState = {
   spriteId: string;
@@ -9,7 +9,7 @@ export type AppState = {
   pivotX: number;
   pivotY: number;
   activeTool: ToolKind;
-  activeKind: PrimitiveKind;
+  activeKind: ShapePrimitiveKind;
   color: string;
   foregroundColor: string;
   backgroundColor: string;

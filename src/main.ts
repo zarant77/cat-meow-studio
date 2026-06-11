@@ -12,6 +12,7 @@ import { importSpriteJson } from "./import/importSpriteJson.js";
 import { importSoundJson } from "./import/importSoundJson.js";
 import type { AssetKind, ProjectAsset } from "./model/assets.js";
 import { createMusicProjectAsset, createSfxProjectAsset } from "./model/assetAdapters.js";
+import { normalizeMusicLoop } from "./model/musicProject.js";
 import {
   addCommand,
   createNewProject as createBlankProject,
@@ -39,15 +40,23 @@ import {
   canRedoMusic,
   canUndoMusic,
   createNewMusicProject,
+  clearMusicNoteSelection,
+  deleteMusicNotesInRange,
   deleteSelectedMusicInstrument,
-  deleteSelectedMusicNote,
+  deleteSelectedMusicNotes,
   getCurrentMusicProject,
   getMusicEditorState,
   replaceCurrentMusicProject,
   redoMusic,
+  selectAllMusicNotes,
   selectMusicInstrument,
   selectMusicNote,
+  selectMusicNotesAtTick,
+  selectMusicNotesInRange,
+  setCurrentMusicPlaybackTick,
+  trimEmptyMusicIntro,
   undoMusic,
+  updateMusicSelectionRange,
   updateMusicNote,
   updateMusicProject,
   updateSelectedMusicInstrument,
@@ -101,6 +110,7 @@ if (app === null) {
 
 const preview = new AudioPreview();
 let musicPlaybackState: MusicPlaybackState | null = null;
+let musicPlaybackAnimationFrameId: number | null = null;
 let musicPreviewState: MusicPreviewState = {
   samples: new Float32Array(0),
   dirty: true,
@@ -357,21 +367,69 @@ const musicActions: MusicRenderActions = {
     updateMusicProject(patch);
     renderAfterMusicChange(doesMusicProjectPatchAffectAudio(patch));
   },
-  selectNote(noteId) {
-    if (getMusicEditorState().selectedNoteId === noteId) {
+  selectNote(noteId, options = {}) {
+    const selectedNoteIds = getMusicEditorState().selectedNoteIds;
+
+    if (!options.extendRange && !options.toggle && selectedNoteIds.length === 1 && selectedNoteIds[0] === noteId) {
       return;
     }
 
-    selectMusicNote(noteId);
+    selectMusicNote(noteId, options);
     render();
+  },
+  selectAllNotes() {
+    selectAllMusicNotes();
+    render();
+  },
+  clearNoteSelection() {
+    clearMusicNoteSelection();
+    render();
+  },
+  updateSelectionRange(startTick, endTick) {
+    updateMusicSelectionRange(startTick, endTick);
+    render();
+  },
+  selectNotesInRange() {
+    selectMusicNotesInRange();
+    render();
+  },
+  deleteNotesInRange() {
+    const state = getMusicEditorState();
+    const count = state.project.notes.filter(
+      (note) => note.startTick < state.selectionEndTick && note.startTick + note.durationTicks > state.selectionStartTick,
+    ).length;
+
+    if (count === 0 || (count > 1 && !window.confirm(`Delete ${count} selected notes?`))) {
+      return;
+    }
+
+    deleteMusicNotesInRange();
+    renderAfterMusicChange();
+  },
+  trimEmptyIntro() {
+    const emptyIntroTicks = getEmptyIntroTicks(getMusicEditorState());
+
+    if (
+      emptyIntroTicks <= 0 ||
+      !window.confirm(
+        `Trim ${emptyIntroTicks} ticks from the beginning of this track?\n\nAll notes, loop points, and track length will be shifted left.\nThis action can be undone.`,
+      )
+    ) {
+      return;
+    }
+
+    stopMusicPlayback();
+    preview.stop();
+    if (trimEmptyMusicIntro()) {
+      renderAfterMusicChange();
+    }
   },
   addNote() {
     addMusicNote();
     renderAfterMusicChange();
   },
   deleteNote() {
-    deleteSelectedMusicNote();
-    renderAfterMusicChange();
+    deleteSelectedMusicNotesWithConfirmation();
   },
   updateNote(noteId, patch) {
     updateMusicNote(noteId, patch);
@@ -392,6 +450,9 @@ const musicActions: MusicRenderActions = {
   updateInstrument(patch) {
     updateSelectedMusicInstrument(patch);
     renderAfterMusicChange();
+  },
+  seekPlayback(tick) {
+    seekMusicPlayback(tick);
   },
 };
 
@@ -567,7 +628,37 @@ interface MusicPlaybackState {
 
 function startMusicPlayback(playbackState: MusicPlaybackState): void {
   musicPlaybackState = playbackState;
+  scheduleMusicPlaybackRenderLoop();
   render();
+}
+
+function scheduleMusicPlaybackRenderLoop(): void {
+  if (musicPlaybackAnimationFrameId !== null) {
+    return;
+  }
+
+  const tick = (): void => {
+    musicPlaybackAnimationFrameId = null;
+
+    if (musicPlaybackState === null || !musicPlaybackState.isPlaying || activeMode !== "music") {
+      return;
+    }
+
+    const project = getCurrentMusicProject();
+    const currentTick = getCurrentMusicPlaybackTick(musicPlaybackState, project.lengthTicks);
+
+    if (currentTick === null) {
+      stopMusicPlayback();
+      preview.stop();
+      return;
+    }
+
+    musicPlaybackState.playingNoteIds = getMusicNoteIdsAtTick(currentTick);
+    render();
+    musicPlaybackAnimationFrameId = window.requestAnimationFrame(tick);
+  };
+
+  musicPlaybackAnimationFrameId = window.requestAnimationFrame(tick);
 }
 
 function pauseMusicPlayback(): void {
@@ -583,6 +674,7 @@ function pauseMusicPlayback(): void {
   playbackState.isPlaying = false;
   playbackState.pausedTick = currentTick;
   playbackState.playingNoteIds = [];
+  cancelMusicPlaybackRenderLoop();
   preview.stop();
 
   if (activeMode === "music") {
@@ -595,30 +687,77 @@ function stopMusicPlayback(): void {
 
   const shouldRender = playbackState !== null;
   musicPlaybackState = null;
+  cancelMusicPlaybackRenderLoop();
 
   if (shouldRender && activeMode === "music") {
     render();
   }
 }
 
-function goToCurrentMusicPosition(): void {
-  const playbackState = musicPlaybackState;
-
-  if (playbackState === null) {
-    return;
-  }
-
+function seekMusicPlayback(targetTick: number): void {
   const project = getCurrentMusicProject();
-  const currentTick = playbackState.isPlaying
-    ? getCurrentMusicPlaybackTick(playbackState, project.lengthTicks)
-    : playbackState.pausedTick;
+  const tickSeconds = getTickSeconds(project);
+  const tick = clampMusicTick(targetTick, project.lengthTicks);
+  const playbackState = musicPlaybackState;
+  const isPlaying = playbackState?.isPlaying ?? false;
+  const shouldLoop = playbackState?.loop ?? false;
+  const loop = normalizeMusicLoop(project.loop, project.lengthTicks);
 
-  if (currentTick === null) {
+  preview.stop();
+
+  if (!isPlaying) {
+    musicPlaybackState = {
+      startedAtMs: performance.now(),
+      startOffsetTick: tick,
+      tickSeconds,
+      loop: shouldLoop,
+      loopStartTick: loop.startTick,
+      loopEndTick: loop.endTick,
+      playingNoteIds: getMusicNoteIdsAtTick(tick),
+      isPlaying: false,
+      pausedTick: tick,
+    };
+    cancelMusicPlaybackRenderLoop();
+    render();
     return;
   }
 
-  playbackState.playingNoteIds = getMusicNoteIdsAtTick(currentTick);
+  getMusicPreviewSamplesForPlay((samples) => {
+    preview.playSamples(samples, {
+      loop: shouldLoop,
+      loopStartSeconds: loop.startTick * tickSeconds,
+      loopEndSeconds: loop.endTick * tickSeconds,
+      startOffsetSeconds: tick * tickSeconds,
+    });
+    startMusicPlayback({
+      startedAtMs: performance.now(),
+      startOffsetTick: tick,
+      tickSeconds,
+      loop: shouldLoop,
+      loopStartTick: loop.startTick,
+      loopEndTick: loop.endTick,
+      playingNoteIds: getMusicNoteIdsAtTick(tick),
+      isPlaying: true,
+      pausedTick: tick,
+    });
+  });
+}
 
+function cancelMusicPlaybackRenderLoop(): void {
+  if (musicPlaybackAnimationFrameId === null) {
+    return;
+  }
+
+  window.cancelAnimationFrame(musicPlaybackAnimationFrameId);
+  musicPlaybackAnimationFrameId = null;
+}
+
+function goToCurrentMusicPosition(): void {
+  const project = getCurrentMusicProject();
+  const currentTick = getRenderedMusicPlaybackTick(project.lengthTicks);
+
+  setCurrentMusicPlaybackTick(currentTick);
+  selectMusicNotesAtTick(currentTick);
   if (activeMode === "music") {
     render();
     window.requestAnimationFrame(scrollCurrentMusicPositionIntoView);
@@ -655,6 +794,14 @@ function getMusicPlaybackStartTick(tick: number, loop: boolean, loopStartTick: n
   return Math.max(0, Math.min(Math.max(0, lengthTicks - 1), tick));
 }
 
+function clampMusicTick(tick: number, lengthTicks: number): number {
+  if (!Number.isFinite(tick)) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(Math.max(0, lengthTicks), Math.round(tick)));
+}
+
 function getMusicNoteIdsAtTick(tick: number): string[] {
   return getCurrentMusicProject().notes
     .filter((note) => tick >= note.startTick && tick < note.startTick + note.durationTicks)
@@ -673,6 +820,10 @@ function render(): void {
     throw new Error("Cat Meow root element was not found");
   }
 
+  const project = getCurrentMusicProject();
+  const currentPlaybackTick = getRenderedMusicPlaybackTick(project.lengthTicks);
+
+  setCurrentMusicPlaybackTick(currentPlaybackTick);
   const musicState = getMusicEditorState();
 
   renderApp(
@@ -686,6 +837,7 @@ function render(): void {
       isPreviewRendering: musicPreviewState.isRendering,
       previewQuality: musicPreviewState.quality,
       previewSamples: musicPreviewState.samples,
+      currentPlaybackTick,
     },
     status,
     appActions,
@@ -693,10 +845,28 @@ function render(): void {
 
 }
 
-function scrollCurrentMusicPositionIntoView(): void {
-  const timelineNote = app?.querySelector<HTMLElement>(".music-timeline-note.is-playing");
-  const trackerCell = app?.querySelector<HTMLElement>(".tracker-inline-input.is-playing");
+function getRenderedMusicPlaybackTick(lengthTicks: number): number {
+  if (musicPlaybackState === null) {
+    return 0;
+  }
 
+  if (!musicPlaybackState.isPlaying) {
+    return clampMusicTick(musicPlaybackState.pausedTick, lengthTicks);
+  }
+
+  return clampMusicTick(getCurrentMusicPlaybackTick(musicPlaybackState, lengthTicks) ?? lengthTicks, lengthTicks);
+}
+
+function scrollCurrentMusicPositionIntoView(): void {
+  const timelineNote =
+    app?.querySelector<HTMLElement>(".music-timeline-note.is-selected") ?? app?.querySelector<HTMLElement>(".music-timeline-note.is-playing");
+  const trackerCell =
+    app?.querySelector<HTMLElement>(".tracker-select-button.is-selected") ??
+    app?.querySelector<HTMLElement>(".tracker-inline-input.is-selected") ??
+    app?.querySelector<HTMLElement>(".tracker-inline-input.is-playing");
+  const playhead = app?.querySelector<HTMLElement>(".music-timeline-lanes .music-playhead");
+
+  playhead?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
   timelineNote?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
   trackerCell?.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
 }
@@ -917,7 +1087,10 @@ function detectJsonAssetKind(text: string): AssetKind | "animation" | "font" | n
     return null;
   }
 
-  if (parsed.version === 1 && Array.isArray(parsed.primitives)) {
+  if (
+    (parsed.version === 1 || parsed.version === 2) &&
+    (Array.isArray(parsed.primitives) || Array.isArray(parsed.nodes))
+  ) {
     return "sprite";
   }
 
@@ -978,8 +1151,37 @@ function renderAfterMusicChange(markPreviewDirty = true): void {
   render();
 }
 
+function deleteSelectedMusicNotesWithConfirmation(): void {
+  const selectedCount = getMusicEditorState().selectedNoteIds.length;
+
+  if (selectedCount === 0 || (selectedCount > 1 && !window.confirm(`Delete ${selectedCount} selected notes?`))) {
+    return;
+  }
+
+  if (deleteSelectedMusicNotes() > 0) {
+    renderAfterMusicChange();
+  }
+}
+
+function getEmptyIntroTicks(state: ReturnType<typeof getMusicEditorState>): number {
+  if (state.project.notes.length === 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(...state.project.notes.map((note) => note.startTick)));
+}
+
 function doesMusicProjectPatchAffectAudio(patch: Parameters<MusicRenderActions["updateProject"]>[0]): boolean {
-  return patch.bpm !== undefined || patch.ticksPerBeat !== undefined || patch.lengthTicks !== undefined || patch.loop !== undefined;
+  return (
+    patch.bpm !== undefined ||
+    patch.ticksPerBeat !== undefined ||
+    patch.lengthTicks !== undefined ||
+    patch.loop !== undefined ||
+    patch.volume !== undefined ||
+    patch.normalizeVolume !== undefined ||
+    patch.targetAverageVolume !== undefined ||
+    patch.maxVolumeGain !== undefined
+  );
 }
 
 function saveCurrentMusicProject(): void {
@@ -1330,12 +1532,31 @@ function handleKeyboardShortcut(event: KeyboardEvent): void {
     return;
   }
 
+  if (activeMode === "music" && isCommandShortcut && key === "a") {
+    event.preventDefault();
+    selectAllMusicNotes();
+    render();
+    return;
+  }
+
+  if (activeMode === "music" && event.key === "Escape") {
+    event.preventDefault();
+    clearMusicNoteSelection();
+    render();
+    return;
+  }
+
+  if (activeMode === "music" && key === "g") {
+    event.preventDefault();
+    goToCurrentMusicPosition();
+    return;
+  }
+
   if (event.key === "Delete" || event.key === "Backspace") {
     event.preventDefault();
 
     if (activeMode === "music") {
-      deleteSelectedMusicNote();
-      renderAfterMusicChange();
+      deleteSelectedMusicNotesWithConfirmation();
       return;
     }
 

@@ -1,5 +1,6 @@
 import { CirclePlus, LocateFixed, Pause, Play, Plus, Repeat, Redo2, Square, Trash2, Undo2 } from "lucide";
 import { isMusicWave, musicWaves, normalizeMusicLoop } from "../model/musicProject.js";
+import { getTrackVolumeStats } from "../model/musicLoudness.js";
 import { getSelectedMusicNote, type MusicEditorState } from "../state/musicEditorState.js";
 import { appendChildren, createElement, createField, createIconButton, createTextElement } from "./dom.js";
 import type { AppIcon } from "./icons.js";
@@ -19,14 +20,16 @@ export function renderMusicWorkspaceSurface(
   };
 }
 
-export function renderMusicPreview(state: MusicEditorState): HTMLElement {
+export function renderMusicPreview(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
   const preview = renderPreviewStatusArea("Music preview");
 
   const waveform = createElement("div", "waveform music-waveform-preview");
   waveform.append(
     renderWaveformSamples(state.previewSamples),
     renderLoopOverlay(state.project.lengthTicks, state.project.loop),
+    renderMusicPlayhead(state.project.lengthTicks, state.currentPlaybackTick),
   );
+  bindSeekableTimeline(waveform, state.project.lengthTicks, actions);
 
   const previewMeta = createElement("div", "preview-meta");
   previewMeta.append(
@@ -56,8 +59,59 @@ function renderMusicProjectPanel(state: MusicEditorState, actions: MusicRenderAc
   );
   panel.append(timingGrid);
   panel.append(renderMusicLoopControls(state, actions));
+  panel.append(renderMusicLoudnessControls(state, actions));
+  panel.append(renderMusicSelectionControls(state, actions));
 
   return panel;
+}
+
+function renderMusicLoudnessControls(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
+  const section = createElement("section", "music-loudness-controls");
+  const stats = getTrackVolumeStats(state.project);
+  const normalizeToggle = createElement("input");
+  normalizeToggle.type = "checkbox";
+  normalizeToggle.checked = state.project.normalizeVolume;
+  normalizeToggle.dataset.field = "musicNormalizeVolume";
+  normalizeToggle.addEventListener("change", () => actions.updateProject({ normalizeVolume: normalizeToggle.checked }));
+
+  section.append(createTextElement("h2", "Loudness"));
+  section.append(createNumberField("Track volume", state.project.volume, "musicVolume", (value) => actions.updateProject({ volume: value }), {
+    min: 0,
+    max: 4,
+    step: 0.05,
+  }));
+  section.append(createField("Normalize volume", normalizeToggle));
+
+  if (state.project.normalizeVolume) {
+    section.append(
+      createNumberField(
+        "Target avg volume",
+        state.project.targetAverageVolume,
+        "musicTargetAverageVolume",
+        (value) => actions.updateProject({ targetAverageVolume: value }),
+        { min: 0, max: 100, step: 1 },
+      ),
+    );
+    section.append(
+      createNumberField(
+        "Max gain",
+        state.project.maxVolumeGain,
+        "musicMaxVolumeGain",
+        (value) => actions.updateProject({ maxVolumeGain: value }),
+        { min: 1, max: 8, step: 0.1 },
+      ),
+    );
+  }
+
+  section.append(
+    createTextElement(
+      "p",
+      `Avg volume: ${stats.averageBefore.toFixed(1)} -> ${stats.averageAfter.toFixed(1)}. Applied gain: ${stats.normalizationGain.toFixed(2)}x`,
+      "music-loudness-status",
+    ),
+  );
+
+  return section;
 }
 
 function renderMusicSidebar(state: MusicEditorState, actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
@@ -65,6 +119,66 @@ function renderMusicSidebar(state: MusicEditorState, actions: MusicRenderActions
   panel.append(renderMusicToolbar(state, actions, shellActions), renderMusicInstrumentList(state, actions));
 
   return panel;
+}
+
+function renderMusicSelectionControls(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
+  const section = createElement("section", "music-selection-controls");
+  const title = createElement("div", "panel-title compact-title");
+  const clearButton = createTextElement("button", "Clear", "secondary-button");
+  clearButton.type = "button";
+  clearButton.disabled = state.selectedNoteIds.length === 0;
+  clearButton.addEventListener("click", actions.clearNoteSelection);
+  title.append(createTextElement("h2", "Selection"), clearButton);
+
+  const fields = createElement("div", "field-grid");
+  fields.append(
+    createNumberField("Start tick", state.selectionStartTick, "musicSelectionStart", (value) =>
+      actions.updateSelectionRange(value, state.selectionEndTick),
+    ),
+    createNumberField("End tick", state.selectionEndTick, "musicSelectionEnd", (value) =>
+      actions.updateSelectionRange(state.selectionStartTick, value),
+    ),
+  );
+
+  const selectRangeButton = createTextElement("button", "Select notes in range", "primary-button");
+  selectRangeButton.type = "button";
+  selectRangeButton.addEventListener("click", actions.selectNotesInRange);
+
+  const deleteSelectedButton = createTextElement("button", `Delete selected notes (${state.selectedNoteIds.length})`, "danger-button");
+  deleteSelectedButton.type = "button";
+  deleteSelectedButton.disabled = state.selectedNoteIds.length === 0;
+  deleteSelectedButton.addEventListener("click", actions.deleteNote);
+
+  const deleteRangeButton = createTextElement("button", "Delete notes in range", "danger-button");
+  deleteRangeButton.type = "button";
+  deleteRangeButton.addEventListener("click", actions.deleteNotesInRange);
+
+  const emptyIntroTicks = getEmptyIntroTicks(state);
+  const trimIntroButton = createTextElement("button", "Trim empty intro", "secondary-button");
+  trimIntroButton.type = "button";
+  trimIntroButton.title = "Shift all notes left so the first note starts at tick 0.";
+  trimIntroButton.disabled = emptyIntroTicks <= 0;
+  trimIntroButton.addEventListener("click", actions.trimEmptyIntro);
+
+  const actionsRow = createElement("div", "music-selection-actions");
+  actionsRow.append(selectRangeButton, deleteSelectedButton, deleteRangeButton, trimIntroButton);
+  section.append(
+    title,
+    fields,
+    actionsRow,
+    createTextElement("p", `Selected notes: ${state.selectedNoteIds.length}`, "music-selection-status"),
+    createTextElement("p", emptyIntroTicks > 0 ? `Empty intro: ${emptyIntroTicks} ticks` : "No empty intro detected.", "music-selection-status"),
+  );
+
+  return section;
+}
+
+function getEmptyIntroTicks(state: MusicEditorState): number {
+  if (state.project.notes.length === 0) {
+    return 0;
+  }
+
+  return Math.max(0, Math.min(...state.project.notes.map((note) => note.startTick)));
 }
 
 function renderMusicToolbar(state: MusicEditorState, actions: MusicRenderActions, shellActions: RenderActions): HTMLElement {
@@ -79,7 +193,7 @@ function renderMusicToolbar(state: MusicEditorState, actions: MusicRenderActions
       shellActions.playSound,
     ],
     [Repeat, "Play loop", shellActions.playMusicLoop],
-    [LocateFixed, "Go to current position", shellActions.goToCurrentMusicPosition],
+    [LocateFixed, "Go to current playback position", shellActions.goToCurrentMusicPosition],
     [Square, "Stop preview", shellActions.stopSound],
     [Plus, "Add note", actions.addNote],
     [CirclePlus, "Add instrument", actions.addInstrument],
@@ -128,6 +242,7 @@ function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions
 
   const grid = createElement("div", "panel-scroll tracker-grid music-note-grid");
   appendChildren(grid, [
+    createTextElement("strong", "Sel"),
     createTextElement("strong", "Tick"),
     createTextElement("strong", "Inst"),
     createTextElement("strong", "Note"),
@@ -136,13 +251,14 @@ function renderMusicTracker(state: MusicEditorState, actions: MusicRenderActions
   ]);
 
   const notes = [...state.project.notes].sort(
-    (left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note,
+    (left, right) => left.startTick - right.startTick || left.instrument - right.instrument || left.note - right.note || left.id.localeCompare(right.id),
   );
   for (const note of notes) {
-    const isSelected = note.id === state.selectedNoteId;
+    const isSelected = state.selectedNoteIds.includes(note.id);
     const isPlaying = state.playingNoteIds.includes(note.id);
     const rowClassName = `list-row tracker-row${isSelected ? " is-selected" : ""}${isPlaying ? " is-playing" : ""}`;
     grid.append(
+      createNoteSelectButton(note, rowClassName, actions),
       createInlineNumberInput(note.id, "tick", note.startTick, rowClassName, actions, (value) => ({ startTick: value })),
       createInlineInstrumentSelect(state, note, rowClassName, actions),
       createInlineNoteInput(note, rowClassName, actions),
@@ -175,9 +291,11 @@ function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderAction
   ruler.append(renderLoopOverlay(lengthTicks, loop));
   lanes.append(
     renderLoopOverlay(lengthTicks, loop),
+    renderMusicPlayhead(lengthTicks, state.currentPlaybackTick),
     renderLoopMarker("start", lengthTicks, loop, actions),
     renderLoopMarker("end", lengthTicks, loop, actions),
   );
+  bindSeekableTimeline(lanes, lengthTicks, actions);
 
   state.project.instruments.forEach((instrument, instrumentIndex) => {
     const lane = createElement("div", "music-timeline-lane");
@@ -189,14 +307,14 @@ function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderAction
       const noteButton = createTextElement(
         "button",
         getNoteName(note.note),
-        `music-timeline-note instrument-${instrumentIndex % 5}${note.id === state.selectedNoteId ? " is-selected" : ""}${
+        `music-timeline-note instrument-${instrumentIndex % 5}${state.selectedNoteIds.includes(note.id) ? " is-selected" : ""}${
           state.playingNoteIds.includes(note.id) ? " is-playing" : ""
         }`,
       );
       noteButton.type = "button";
       noteButton.style.left = `${(note.startTick / lengthTicks) * 100}%`;
       noteButton.style.width = `${Math.max(1.8, (note.durationTicks / lengthTicks) * 100)}%`;
-      noteButton.addEventListener("click", () => actions.selectNote(note.id));
+      noteButton.addEventListener("click", (event) => actions.selectNote(note.id, getNoteSelectionOptions(event)));
       lane.append(noteButton);
     }
     lanes.append(lane);
@@ -206,13 +324,65 @@ function renderMusicTimeline(state: MusicEditorState, actions: MusicRenderAction
   return timeline;
 }
 
+function createNoteSelectButton(
+  note: { id: string; startTick: number; note: number },
+  className: string,
+  actions: MusicRenderActions,
+): HTMLButtonElement {
+  const button = createTextElement("button", "•", `${className} tracker-select-button`);
+  button.type = "button";
+  button.title = `Select ${getNoteName(note.note)} at tick ${note.startTick}`;
+  button.addEventListener("click", (event) => actions.selectNote(note.id, getNoteSelectionOptions(event)));
+
+  return button;
+}
+
+function renderMusicPlayhead(lengthTicks: number, currentTick: number): HTMLElement {
+  const playhead = createElement("div", "music-playhead");
+  const tick = Math.max(0, Math.min(Math.max(1, lengthTicks), currentTick));
+
+  playhead.style.left = `${(tick / Math.max(1, lengthTicks)) * 100}%`;
+  playhead.title = `Playback tick ${Math.round(tick)}`;
+
+  return playhead;
+}
+
+function bindSeekableTimeline(element: HTMLElement, lengthTicks: number, actions: MusicRenderActions): void {
+  const seekFromClientX = (clientX: number): void => {
+    const rect = element.getBoundingClientRect();
+    const ratio = rect.width <= 0 ? 0 : Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    actions.seekPlayback(Math.round(ratio * Math.max(1, lengthTicks)));
+  };
+
+  element.addEventListener("pointerdown", (event) => {
+    if (event.target instanceof HTMLElement && event.target.closest("button")) {
+      return;
+    }
+
+    event.preventDefault();
+    element.setPointerCapture(event.pointerId);
+    seekFromClientX(event.clientX);
+
+    const onPointerMove = (moveEvent: PointerEvent): void => seekFromClientX(moveEvent.clientX);
+    const onPointerUp = (upEvent: PointerEvent): void => {
+      seekFromClientX(upEvent.clientX);
+      element.removeEventListener("pointermove", onPointerMove);
+      element.removeEventListener("pointerup", onPointerUp);
+      element.releasePointerCapture(upEvent.pointerId);
+    };
+
+    element.addEventListener("pointermove", onPointerMove);
+    element.addEventListener("pointerup", onPointerUp, { once: true });
+  });
+}
+
 function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActions): HTMLElement {
   const panel = renderInspectorPanel("music-inspector");
   const selectedNote = getSelectedMusicNote(state);
   const selectedInstrument = state.selectedInstrumentIndex === null ? undefined : state.project.instruments[state.selectedInstrumentIndex];
   const title = createElement("div", "panel-title");
-  const deleteButton = createIconButton(Trash2, "Delete selected note (Delete)", "icon-button danger");
-  deleteButton.disabled = selectedNote === null;
+  const deleteButton = createIconButton(Trash2, "Delete selected notes (Delete)", "icon-button danger");
+  deleteButton.disabled = state.selectedNoteIds.length === 0;
   deleteButton.addEventListener("click", actions.deleteNote);
   title.append(createTextElement("h2", "Music edit"), deleteButton);
   panel.append(title);
@@ -242,6 +412,13 @@ function renderMusicInspector(state: MusicEditorState, actions: MusicRenderActio
       createNumberField("Volume", selectedNote.volume, "noteVolume", (value) => actions.updateNote(selectedNote.id, { volume: value })),
     );
     panel.append(renderNoteInstrumentField(state, selectedNote.id, selectedNote.instrument, actions));
+  } else if (state.selectedNoteIds.length > 1) {
+    panel.append(createTextElement("h2", "Notes"));
+    panel.append(createTextElement("p", `Selected notes: ${state.selectedNoteIds.length}`, "empty-state"));
+    const deleteSelectedButton = createTextElement("button", "Delete selected notes", "danger-button");
+    deleteSelectedButton.type = "button";
+    deleteSelectedButton.addEventListener("click", actions.deleteNote);
+    panel.append(deleteSelectedButton);
   } else {
     panel.append(createTextElement("p", "Select or add a note.", "empty-state"));
   }
@@ -398,6 +575,13 @@ function createInlineNoteInput(note: { id: string; note: number }, className: st
   return input;
 }
 
+function getNoteSelectionOptions(event: MouseEvent | PointerEvent): { extendRange: boolean; toggle: boolean } {
+  return {
+    extendRange: event.shiftKey,
+    toggle: event.metaKey || event.ctrlKey,
+  };
+}
+
 function bindInlineEditKeys(
   element: HTMLInputElement | HTMLSelectElement,
   initialValue: string,
@@ -492,11 +676,26 @@ function createTextField(label: string, value: string, field: string, onInput: (
   return createField(label, input);
 }
 
-function createNumberField(label: string, value: number, field: string, onInput: (value: number) => void): HTMLLabelElement {
+function createNumberField(
+  label: string,
+  value: number,
+  field: string,
+  onInput: (value: number) => void,
+  options: { min?: number; max?: number; step?: number } = {},
+): HTMLLabelElement {
   const input = createElement("input");
   input.type = "number";
   input.value = String(value);
   input.dataset.field = field;
+  if (options.min !== undefined) {
+    input.min = String(options.min);
+  }
+  if (options.max !== undefined) {
+    input.max = String(options.max);
+  }
+  if (options.step !== undefined) {
+    input.step = String(options.step);
+  }
   input.addEventListener("input", () => onInput(Number(input.value)));
 
   return createField(label, input);

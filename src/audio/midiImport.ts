@@ -1,5 +1,13 @@
 import { Midi, type Track } from "@tonejs/midi";
-import { createDefaultMusicLoop, type MusicInstrument, type MusicNote, type MusicProject } from "../model/musicProject.js";
+import {
+  createDefaultMusicLoop,
+  defaultMusicMaxVolumeGain,
+  defaultMusicTargetAverageVolume,
+  defaultMusicVolume,
+  type MusicInstrument,
+  type MusicNote,
+  type MusicProject,
+} from "../model/musicProject.js";
 
 export interface MidiImportOptions {
   musicId: string;
@@ -102,6 +110,10 @@ export function convertMidiToMusicProject(buffer: ArrayBuffer, fileName: string,
     bpm,
     ticksPerBeat: outputTicksPerBeat,
     lengthTicks,
+    volume: defaultMusicVolume,
+    normalizeVolume: true,
+    targetAverageVolume: defaultMusicTargetAverageVolume,
+    maxVolumeGain: defaultMusicMaxVolumeGain,
     loop: createDefaultMusicLoop(lengthTicks),
     instruments,
     notes,
